@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+<defs>
+  <pattern id="paving" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M0 0H32V32" fill="none" stroke="#d6d4cd" stroke-width=".65"/></pattern>
+  <filter id="shadow" x="-50%" y="-40%" width="220%" height="200%"><feDropShadow dx="10" dy="12" stdDeviation="7" flood-color="#1e3430" flood-opacity=".2"/></filter>
+  <g id="car"><rect x="0" y="0" width="94" height="181" rx="24" fill="currentColor"/><rect x="7" y="52" width="80" height="81" rx="17" fill="#fff" opacity=".12"/><path d="M15 49L22 24Q47 14 72 24L80 49Z" fill="#273d48"/><path d="M13 139L22 160Q47 172 72 160L81 139Z" fill="#344b53"/><path d="M8 63V126M86 63V126" stroke="#213942" stroke-opacity=".6" stroke-width="4"/><path d="M13 10H29M65 10H81" stroke="#ffe8ae" stroke-width="7" stroke-linecap="round"/><path d="M12 171H27M67 171H82" stroke="#b7554e" stroke-width="5" stroke-linecap="round"/><rect x="-4" y="48" width="8" height="17" rx="3" fill="#293a40"/><rect x="90" y="48" width="8" height="17" rx="3" fill="#293a40"/></g>
+  <g id="tree"><ellipse cx="12" cy="17" rx="66" ry="61" fill="#34583c" opacity=".15"/><circle r="61" fill="#537f61"/><circle cx="-23" cy="-14" r="36" fill="#719570"/><circle cx="21" cy="-24" r="33" fill="#648e65"/><circle cx="20" cy="19" r="39" fill="#4e7956"/><circle cx="-15" cy="9" r="28" fill="#6c9468"/><path d="M-28-22L-17-32M24-13L34-5M-5 31L6 33" stroke="#90aa81" stroke-width="4" stroke-linecap="round" opacity=".7"/></g>
+  <g id="person"><ellipse cx="6" cy="10" rx="15" ry="24" fill="#40524d" opacity=".19"/><rect x="-12" y="-3" width="24" height="25" rx="8" fill="currentColor"/><circle cy="-10" r="9" fill="#c79a76"/><path d="M-6 20V31M6 20V31" stroke="#37424a" stroke-width="6" stroke-linecap="round"/></g>
+</defs>
+<rect width="1440" height="900" fill="#cfcfc7"/><rect width="1440" height="900" fill="url(#paving)"/>
+<rect x="190" width="1060" height="900" fill="#858e8b"/><rect x="208" width="1024" height="900" fill="#929995"/>
+<path d="M660 0V900" stroke="#e8e6d9" stroke-width="7" stroke-dasharray="50 44"/>
+<path d="M210 110H542V336H210M210 370H542V598H210M210 633H542V860H210M785 110H1230M785 336H1230M785 110V860M1006 110V860M785 598H1230M785 860H1230" fill="none" stroke="#e7e7d9" stroke-width="5"/>
+<path d="M660 440V365M640 390L660 365L680 390M660 778V703M640 728L660 703L680 728" fill="none" stroke="#e3e3d7" stroke-width="9"/>
+<path d="M1255 0H1440V900H1255Z" fill="#c2c4b7"/><rect x="1274" width="166" height="900" fill="#d3d2c5"/><rect x="1274" width="166" height="900" fill="url(#paving)"/>
+<rect x="0" y="0" width="174" height="900" fill="#adba9e"/>
+<g fill="#c3c6b7"><rect x="20" y="49" width="133" height="195" rx="9"/><rect x="20" y="353" width="133" height="195" rx="9"/><rect x="20" y="657" width="133" height="195" rx="9"/></g>
+<g filter="url(#shadow)"><use href="#car" x="320" y="135" color="#bac4c4"/><use href="#car" x="320" y="397" color="#697f9d"/><use href="#car" x="835" y="135" color="#e0d6bc"/><use href="#car" x="1065" y="401" color="#bb7967"/><use href="#car" x="835" y="660" color="#f1eee0"/><use href="#car" x="320" y="660" color="#586d6a"/></g>
+<g filter="url(#shadow)"><use href="#tree" x="86" y="143"/><use href="#tree" x="86" y="448"/><use href="#tree" x="86" y="753"/><use href="#tree" x="1360" y="148"/><use href="#tree" x="1360" y="757"/></g>
+<g fill="#8b877b"><rect x="1312" y="397" width="105" height="30" rx="5"/><rect x="1312" y="476" width="105" height="30" rx="5"/></g><g stroke="#c1b39b" stroke-width="5"><path d="M1320 405H1409M1320 416H1409M1320 484H1409M1320 495H1409"/></g>
+<use href="#person" x="1180" y="680" color="#d1a052"/><use href="#person" x="1210" y="699" color="#7b8e9a"/><use href="#person" x="1317" y="571" color="#cf8e7b"/>
+<g fill="#79867d" font-family="Arial,sans-serif" font-size="18" opacity=".7"><text x="240" y="319">01</text><text x="240" y="581">02</text><text x="240" y="845">03</text><text x="806" y="319">04</text><text x="1025" y="319">05</text></g>
+<rect width="1440" height="900" fill="#e9dcbb" opacity=".06"/>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "name": "anoint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Anotador desktop local de imagens",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "preview": "node scripts/serve.js",
+    "test:ui": "electron scripts/check-ui.cjs",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "44.2.0"
+  }
+}
