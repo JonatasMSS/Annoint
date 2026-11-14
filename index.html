@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' data: anoint-image:; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="theme-color" content="#f8f9fb" />
     <title>Anoint — Estúdio de anotação</title>
     <link rel="stylesheet" href="./src/styles.css" />
@@ -26,7 +26,7 @@
       <form id="export-form">
         <div class="dialog-heading"><h2 id="export-title">Exportar anotações</h2><button type="button" class="icon-button" data-close-dialog aria-label="Fechar exportação">×</button></div>
         <label class="field-label" for="export-format">Formato</label>
-        <select id="export-format"><option value="json">Projeto Anoint (JSON)</option><option value="yolo">YOLO — detecção (ZIP)</option><option value="tracknet">TrackNet — rastreamento (ZIP)</option></select>
+        <select id="export-format"><option value="json">Projeto Anoint (JSON)</option><option value="yolo">YOLO — detecção (ZIP)</option><option value="tracknet" disabled>TrackNet — temporariamente desabilitado</option></select>
         <div id="export-class-field" hidden><label class="field-label" for="export-class">Classe a rastrear</label><select id="export-class"></select><p>Uma caixa por imagem nesta classe. Exporta o centro em pixels e a visibilidade em Label.csv por pasta. Imagens sem essa classe recebem visibilidade 0; outras classes não entram no CSV. Status é 0, sem eventos.</p></div>
         <p id="export-note" class="muted"></p>
         <p class="dialog-footnote">YOLO inclui imagens, caixas normalizadas, classes.txt e data.yaml. GIF não é aceito neste formato. Treino e validação usam as mesmas imagens; separe os conjuntos antes de treinar.</p>

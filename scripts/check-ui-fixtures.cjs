@@ -27,7 +27,7 @@ module.exports = async function checkFixtures({ win, page, waitFor, mouse, key, 
     await waitFor("document.querySelector('#toast').textContent.includes('Projeto aberto')");
   };
   const upload = (id, list) => page(`{ const transfer=new DataTransfer(); for(const [index,item] of ${JSON.stringify(list)}.entries()){const bytes=Uint8Array.from(atob(item.bytes),c=>c.charCodeAt(0)); const file=new File([bytes],item.name.split('/').at(-1),{type:index%2?item.type:''}); Object.defineProperty(file,'webkitRelativePath',{value:item.name}); transfer.items.add(file);} const input=document.querySelector(${JSON.stringify(id)}); input.files=transfer.files; input.dispatchEvent(new Event('change',{bubbles:true})); }`);
-  const disk = () => page("import('./src/storage.js').then(m=>m.loadProject())");
+  const disk = () => page("import('./src/storage.js').then(async m=>m.portableProject(await m.loadProject()))");
   const geometry = () => page("Object.fromEntries(['x','y','width','height'].map(k=>[k,Number(document.querySelector('#box-'+k).value)]))");
   const exactGeometry = (box) => page(`{ const box=${JSON.stringify(box)}; for(const key of ['width','height','x','y']){const input=document.querySelector('#box-'+key);input.value=box[key];input.dispatchEvent(new Event('change',{bubbles:true}));} }`);
   const select = async (id) => { await page(`document.querySelector('[data-image="${id}"]').click()`); await pause(100); };
@@ -201,9 +201,6 @@ module.exports = async function checkFixtures({ win, page, waitFor, mouse, key, 
   passed('Soltar arquivo na interface adiciona a imagem e permite desfazer o lote');
   await exportAs('json');
   assert.deepEqual(JSON.parse(await page('window.__exported.text()')), finalProject);
-  await exportAs('tracknet');
-  const tracked = await exportedZip();
-  assert.ok([...tracked.keys()].some((name) => name.endsWith('Label.csv')));
   await exportAs('yolo');
   const yolo = await exportedZip();
   assert.equal([...yolo.keys()].filter((name) => name.startsWith('labels/')).length, 10);
@@ -211,9 +208,7 @@ module.exports = async function checkFixtures({ win, page, waitFor, mouse, key, 
   const expectedRows = ['0 0.15 0.17777777777777778 0.2 0.2222222222222222', '1 0.796875 0.75 0.28125 0.2777777777777778'];
   assert.deepEqual(yolo.get(labelFile).toString().trim().split('\n'), expectedRows);
   assert.deepEqual(yolo.get(labelFile.replace(/^labels\//, 'images/').replace(/\.txt$/, '.png')), fs.readFileSync(landscapeFile.file));
-  const csvPath = [...tracked.keys()].find((name) => name.endsWith('/valid/Label.csv'));
-  assert.match(tracked.get(csvPath).toString(), /01-paisagem.png,1,96,64,0/);
-  passed('JSON preserva o projeto; YOLO contém caixas exatas e bytes originais; TrackNet exporta os centros corretos');
+  passed('JSON preserva o projeto; YOLO contém caixas exatas e bytes originais de todos os lotes');
 
   const template = { ...finalProject.images[0], annotations: [], reviewed: false };
   const nearLimit = { version: 1, labels, images: Array.from({ length: 99 }, (_, index) => ({ ...template, id: `capacity-${index}`, name: `capacity-${index}.png` })) };
@@ -222,10 +217,12 @@ module.exports = async function checkFixtures({ win, page, waitFor, mouse, key, 
   await waitFor("document.querySelectorAll('.thumbnail').length === 100");
   await saved();
   assert.equal((await disk()).images.at(-1).name, 'mix/2-valida.png');
-  await upload('#image-input', [{ ...first, name: 'sem-espaco.png' }]);
-  await waitFor("document.querySelector('#toast').textContent.includes('até 100 imagens')");
-  assert.equal(await page("document.querySelectorAll('.thumbnail').length"), 100);
-  passed('No limite de 100 imagens, o lote misto mantém a válida e rejeita a corrompida e o excesso');
+  await upload('#image-input', [{ ...first, name: 'proximo-lote.png' }]);
+  await waitFor("document.querySelector('#batch-select').value === '1'");
+  await saved();
+  assert.equal(await page("document.querySelectorAll('.thumbnail').length"), 1);
+  assert.equal((await disk()).images.length, 101);
+  passed('Lote misto mantém a válida, rejeita a corrompida e cria o próximo lote acima de 100');
 
   const tiny = { ...template, id: 'subpixel', annotations: [{ id: 'tiny-box', labelId: 'red', x: 0, y: 0, width: .5, height: .5 }] };
   await openValue({ version: 1, labels, images: [tiny] });

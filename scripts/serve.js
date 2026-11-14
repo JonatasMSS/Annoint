@@ -6,7 +6,7 @@ const root = new URL('../', import.meta.url);
 const files = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
-  ...['app', 'model', 'storage', 'export'].map((name) => [`/src/${name}.js`, [`src/${name}.js`, 'text/javascript; charset=utf-8']]),
+  ...['app', 'model', 'storage', 'export', 'batches'].map((name) => [`/src/${name}.js`, [`src/${name}.js`, 'text/javascript; charset=utf-8']]),
   ['/src/styles.css', ['src/styles.css', 'text/css; charset=utf-8']],
   ['/assets/demo-street.svg', ['assets/demo-street.svg', 'image/svg+xml']],
 ]);
