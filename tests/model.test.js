@@ -226,7 +226,7 @@ test('Electron carrega index.html com isolamento e bloqueia permissões e navega
     require(name) {
       if (name === 'node:path') return path;
       assert.equal(name, 'electron');
-      return { BrowserWindow: Window, session: { defaultSession: session }, app: { whenReady: () => ready, on() {}, quit() { assert.fail('Inicialização falhou'); } }, dialog: { showErrorBox() { assert.fail('Erro inesperado'); } } };
+      return { BrowserWindow: Window, session: { defaultSession: session }, app: { requestSingleInstanceLock: () => true, whenReady: () => ready, on() {}, quit() { assert.fail('Inicialização falhou'); } }, dialog: { showErrorBox() { assert.fail('Erro inesperado'); } } };
     },
     __dirname: '/anoint/electron',
     process: { platform: 'win32' },
@@ -248,4 +248,18 @@ test('Electron carrega index.html com isolamento e bloqueia permissões e navega
   assert.equal(permissionCheck(), false);
   assert.equal(devicePermission(), false);
   network({}, result => assert.equal(result.cancel, true));
+});
+
+test('uma segunda instância do Electron encerra antes de abrir o projeto', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const { default: path } = await import('node:path');
+  let quit = false;
+  runInNewContext(await (await import('node:fs/promises')).readFile(new URL('../electron/main.cjs', import.meta.url), 'utf8'), {
+    require(name) {
+      if (name === 'node:path') return path;
+      return { app: { requestSingleInstanceLock: () => false, quit() { quit = true; }, whenReady() { assert.fail('Não deve abrir outra instância'); } } };
+    },
+    __dirname: '/anoint/electron',
+  });
+  assert.equal(quit, true);
 });

@@ -1,5 +1,7 @@
 const MAX_SOURCE = 32 * 1024 * 1024;
 const MAX_PROJECT_SOURCE = 128 * 1024 * 1024;
+export const MAX_ANNOTATIONS_PER_IMAGE = 10_000;
+export const MAX_PROJECT_ANNOTATIONS = 100_000;
 
 function dimensions(width, height) {
   return Number.isFinite(width) && Number.isFinite(height)
@@ -91,9 +93,9 @@ export function validateProject(value) {
     totalSource += image.src.length;
     check(totalSource <= MAX_PROJECT_SOURCE, 'Projeto excede 128 MiB de imagens em base64.');
     check(typeof image.reviewed === 'boolean', 'Estado de revisão inválido.');
-    check(Array.isArray(image.annotations) && image.annotations.length <= 10000, 'Lista de anotações inválida (máximo 10000 por imagem).');
+    check(Array.isArray(image.annotations) && image.annotations.length <= MAX_ANNOTATIONS_PER_IMAGE, 'Lista de anotações inválida (máximo 10000 por imagem).');
     totalAnnotations += image.annotations.length;
-    check(totalAnnotations <= 100000, 'Projeto excede 100000 anotações.');
+    check(totalAnnotations <= MAX_PROJECT_ANNOTATIONS, 'Projeto excede 100000 anotações.');
     const annotations = [];
     for (const box of image.annotations) {
       check(box && typeof box === 'object', 'Anotação inválida.');

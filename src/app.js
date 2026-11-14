@@ -1,4 +1,4 @@
-import { normalizeBox, clampBox, moveBox, validateProject, createProject } from './model.js';
+import { normalizeBox, clampBox, moveBox, validateProject, createProject, MAX_ANNOTATIONS_PER_IMAGE, MAX_PROJECT_ANNOTATIONS } from './model.js';
 import { loadProject, saveProject } from './storage.js';
 import { exportDataset } from './export.js';
 
@@ -49,6 +49,7 @@ let labelId = 'car';
 let tool = 'select';
 let zoom = 1;
 let fitScale = 1;
+let fittedViewport = '';
 let history = [];
 let future = [];
 let drag = null;
@@ -64,6 +65,7 @@ let importing = false;
 let exporting = false;
 let editingLabelId = null;
 let ready = false;
+let sessionBlocked = false;
 const imageSelections = new Map();
 const currentImage = () => project.images.find((image) => image.id === imageId) || project.images[0];
 const currentBox = () => currentImage()?.annotations.find((box) => box.id === selectedId);
@@ -136,7 +138,7 @@ function render() {
   const focused = document.activeElement;
   const focusKey = ['action', 'tool', 'label', 'editLabel', 'box', 'image'].find((key) => focused?.dataset?.[key]);
   const focusSelector = focused?.id ? `#${CSS.escape(focused.id)}` : focusKey ? `[data-${focusKey.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}="${CSS.escape(focused.dataset[focusKey])}"]` : null;
-  const scroll = { x: $('#stage')?.scrollLeft || 0, y: $('#stage')?.scrollTop || 0 };
+  const scroll = ['#stage', '.sidebar', '.inspector', '.annotation-list', '.thumbnails'].map((selector) => ({ selector, x: $(selector)?.scrollLeft || 0, y: $(selector)?.scrollTop || 0 }));
   const image = currentImage();
   const completed = project.images.filter((item) => item.reviewed).length;
   const percent = Math.round(completed / project.images.length * 100);
@@ -146,7 +148,7 @@ function render() {
     <header class="topbar"><div class="brand"><span class="brand-mark">${icon('logo')}</span>anoint<span class="sr-only">Estúdio de anotação</span></div><span class="top-divider"></span><div class="project-crumb">${icon('folder')}<span>Projetos</span>${icon('chevron')}<strong>Meu primeiro projeto</strong><span class="pill">Local</span></div><div class="top-actions"><button class="icon-button" data-action="help" title="Como usar o Anoint" aria-label="Como usar o Anoint">${icon('help')}</button><button class="button" data-action="open-project" title="Abrir projeto JSON">${icon('folder')}<span>Abrir projeto</span></button><button class="button primary" data-action="export">${icon('download')}Exportar projeto</button></div></header>
     <aside class="sidebar" aria-label="Projeto e classes"><div class="workspace-label"><span class="status-dot"></span>Seu espaço de trabalho</div><div class="project-card"><h2>Meu primeiro projeto</h2><p>Um detalhe de cada vez.</p></div><button class="nav-item active" data-action="show-all">${icon('box')}Anotações<span class="count">${project.images.length}</span></button><button class="nav-item" data-action="import-images">${icon('upload')}Importar imagens</button><hr class="sidebar-separator" /><div class="section-label">Classes<button class="icon-button" data-action="new-class" title="Criar classe" aria-label="Criar classe">${icon('plus')}</button></div><div class="classes">${project.labels.map((label) => `<div class="class-item ${label.id === labelId ? 'selected' : ''}" data-color="${label.color}"><button class="class-select" data-label="${escapeHTML(label.id)}" aria-pressed="${label.id === labelId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(label.name)}</span><span class="class-count">${project.images.reduce((count, item) => count + item.annotations.filter((annotation) => annotation.labelId === label.id).length, 0)}</span></button><button class="icon-button edit-class" data-edit-label="${escapeHTML(label.id)}" aria-label="Editar classe ${escapeHTML(label.name)}" title="Editar classe">${icon('edit')}</button></div>`).join('')}</div><p class="sidebar-tip">Escolha uma classe antes de desenhar.<br />Cada objeto, uma nova anotação.</p><div class="sidebar-bottom"><div class="agent-card"><div class="agent-card-heading">${icon('sparkles')}Um assistente para seu olhar</div><p>No futuro, agentes vão ajudar a encontrar e anotar padrões nas suas imagens.</p><span class="coming-soon">EM BREVE · INTEGRAÇÃO MCP</span></div><button class="sidebar-help" data-action="shortcuts">${icon('keyboard')}Atalhos de teclado</button></div></aside>
     <main class="workspace"><div class="workspace-heading"><div><p class="eyebrow">Anotação de imagens</p><h1>O detalhe faz a diferença.</h1><p class="subtitle">Encontre, marque e organize o que importa.</p></div><span class="manual-badge"><span></span>Modo manual</span></div><section class="editor" aria-label="Editor de imagem"><div class="editor-toolbar"><div class="tools" role="group" aria-label="Ferramentas de anotação"><button class="tool ${tool === 'select' ? 'selected' : ''}" data-tool="select" aria-pressed="${tool === 'select'}" title="Selecionar e mover (V)">${icon('cursor')}Selecionar<kbd>V</kbd></button><button class="tool ${tool === 'box' ? 'selected' : ''}" data-tool="box" aria-pressed="${tool === 'box'}" title="Desenhar caixa (B)">${icon('box')}Caixa<kbd>B</kbd></button></div><span class="toolbar-divider"></span><button class="icon-button" data-action="undo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" ${history.length ? '' : 'disabled'}>${icon('undo')}</button><button class="icon-button" data-action="redo" title="Refazer (Ctrl+Y)" aria-label="Refazer" ${future.length ? '' : 'disabled'}>${icon('redo')}</button><div class="zoom-controls"><button class="icon-button" data-action="zoom-out" title="Diminuir zoom" aria-label="Diminuir zoom">${icon('minus')}</button><span class="zoom-readout" aria-live="polite"></span><button class="icon-button" data-action="zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom">${icon('plus')}</button><span class="toolbar-divider"></span><button class="icon-button" data-action="fit" title="Ajustar imagem à área de edição" aria-label="Ajustar imagem à área de edição">${icon('fit')}</button></div></div><div class="stage" id="stage"><div class="image-space"><div class="image-surface"><img src="${escapeHTML(image.src)}" alt="${escapeHTML(image.name)}" draggable="false" /><svg class="annotation-layer ${tool === 'box' ? 'draw-mode' : ''}" viewBox="0 0 ${image.width} ${image.height}" aria-label="Anotações sobre ${escapeHTML(image.name)}"></svg></div></div></div><div class="editor-infobar">${icon('image')}<span class="image-filename" title="${escapeHTML(image.name)}">${escapeHTML(image.name)}</span><span class="dimensions">${image.width} × ${image.height} px</span><span class="image-badge">${image.id === 'demo-image' ? 'Exemplo ilustrado' : 'Arquivo local'}</span></div></section><div class="editor-hint"><span>${icon('info')}${tool === 'box' ? 'Clique e arraste para criar uma caixa.' : 'Selecione uma caixa para ajustar os detalhes.'}</span><span><kbd>B</kbd>Caixa <kbd>V</kbd>Selecionar <kbd>Esc</kbd>Cancelar</span></div><section class="filmstrip" aria-label="Imagens do projeto"><div class="filmstrip-heading"><h2>Imagens do projeto</h2><span class="number">${project.images.length}</span><select id="image-filter" aria-label="Filtrar imagens"><option value="all" ${filter === 'all' ? 'selected' : ''}>Todas as imagens</option><option value="pending" ${filter === 'pending' ? 'selected' : ''}>Pendentes</option><option value="done" ${filter === 'done' ? 'selected' : ''}>Concluídas</option></select></div><div class="thumbnails">${filtered.map(thumbnailMarkup).join('')}${!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : ''}<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button></div></section></main>
-    <aside class="inspector" aria-label="Anotações e propriedades"><div class="inspector-header"><h2>Anotações</h2><span class="number">${image.annotations.length}</span><button class="icon-button" data-action="draw" title="Criar anotação (B)" aria-label="Criar anotação">${icon('plus')}</button></div><div class="annotation-list">${image.annotations.map((annotation, index) => `<button class="annotation-row ${annotation.id === selectedId ? 'selected' : ''}" data-box="${escapeHTML(annotation.id)}" data-color="${labelFor(annotation.labelId).color}" aria-pressed="${annotation.id === selectedId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(labelFor(annotation.labelId).name)}</span><span class="annotation-id">${String(index + 1).padStart(2, '0')}</span>${icon('box')}</button>`).join('') || '<div class="empty-inspector">Nenhuma anotação ainda.<br />Use <kbd>B</kbd> para criar a primeira.</div>'}</div>${box ? `<section class="inspector-section"><h3>Propriedades da seleção</h3><label class="field-label" for="box-class">Classe</label><select id="box-class">${project.labels.map((label) => `<option value="${escapeHTML(label.id)}" ${box.labelId === label.id ? 'selected' : ''}>${escapeHTML(label.name)}</option>`).join('')}</select><div class="geometry-grid">${[['x', 'Posição X'], ['y', 'Posição Y'], ['width', 'Largura'], ['height', 'Altura']].map(([key, name]) => `<div class="geometry-field"><label class="field-label" for="box-${key}">${name}</label><input type="number" id="box-${key}" data-geometry="${key}" value="${Math.round(box[key] * 100) / 100}" min="${key === 'x' || key === 'y' ? 0 : 1}" max="${key === 'x' || key === 'width' ? image.width : image.height}" step="any" required /><span class="unit">px</span></div>`).join('')}</div><button class="delete-annotation" data-action="delete">${icon('trash')}Excluir anotação<kbd>Del</kbd></button></section>` : '<div class="inspector-section empty-inspector">' + icon('cursor') + '<strong>Um lugar para cada detalhe.</strong><br />Selecione uma anotação para<br />ver e editar suas propriedades.</div>'}<section class="progress-section"><div class="progress-heading"><strong>Seu progresso</strong><span>${percent}%</span></div><div class="progress-track" role="progressbar" aria-label="Imagens concluídas" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><p class="progress-caption">${completed} de ${project.images.length} ${project.images.length === 1 ? 'imagem concluída' : 'imagens concluídas'}</p><button class="button complete-button ${image.reviewed ? 'done' : ''}" data-action="complete" aria-pressed="${image.reviewed}">${icon('checkCircle')}${image.reviewed ? 'Imagem concluída' : 'Concluir imagem'}<kbd>C</kbd></button><p class="inspector-footnote">${image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.'}</p></section></aside>
+    <aside class="inspector" aria-label="Anotações e propriedades"><div class="inspector-header"><h2>Anotações</h2><span class="number">${image.annotations.length}</span><button class="icon-button" data-action="draw" title="Criar anotação (B)" aria-label="Criar anotação">${icon('plus')}</button></div><div class="annotation-list">${image.annotations.map((annotation, index) => `<button class="annotation-row ${annotation.id === selectedId ? 'selected' : ''}" data-box="${escapeHTML(annotation.id)}" data-color="${labelFor(annotation.labelId).color}" aria-pressed="${annotation.id === selectedId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(labelFor(annotation.labelId).name)}</span><span class="annotation-id">${String(index + 1).padStart(2, '0')}</span>${icon('box')}</button>`).join('') || '<div class="empty-inspector">Nenhuma anotação ainda.<br />Use <kbd>B</kbd> para criar a primeira.</div>'}</div>${box ? `<section class="inspector-section"><h3>Propriedades da seleção</h3><label class="field-label" for="box-class">Classe</label><select id="box-class">${project.labels.map((label) => `<option value="${escapeHTML(label.id)}" ${box.labelId === label.id ? 'selected' : ''}>${escapeHTML(label.name)}</option>`).join('')}</select><div class="geometry-grid">${[['x', 'Posição X'], ['y', 'Posição Y'], ['width', 'Largura'], ['height', 'Altura']].map(([key, name]) => `<div class="geometry-field"><label class="field-label" for="box-${key}">${name}</label><input type="number" id="box-${key}" data-geometry="${key}" value="${box[key]}" min="0" max="${key === 'x' || key === 'width' ? image.width : image.height}" step="any" required /><span class="unit">px</span></div>`).join('')}</div><button class="delete-annotation" data-action="delete">${icon('trash')}Excluir anotação<kbd>Del</kbd></button></section>` : '<div class="inspector-section empty-inspector">' + icon('cursor') + '<strong>Um lugar para cada detalhe.</strong><br />Selecione uma anotação para<br />ver e editar suas propriedades.</div>'}<section class="progress-section"><div class="progress-heading"><strong>Seu progresso</strong><span>${percent}%</span></div><div class="progress-track" role="progressbar" aria-label="Imagens concluídas" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><p class="progress-caption">${completed} de ${project.images.length} ${project.images.length === 1 ? 'imagem concluída' : 'imagens concluídas'}</p><button class="button complete-button ${image.reviewed ? 'done' : ''}" data-action="complete" aria-pressed="${image.reviewed}">${icon('checkCircle')}${image.reviewed ? 'Imagem concluída' : 'Concluir imagem'}<kbd>C</kbd></button><p class="inspector-footnote">${image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.'}</p></section></aside>
     <footer class="statusbar">${icon('checkCircle')}<button class="save-status" data-action="retry-save"></button><div class="statusbar-right"><span>${icon('lock')}Seus dados ficam neste dispositivo</span><button data-action="shortcuts">${icon('keyboard')}Atalhos</button><span>ANOINТ · PRIMEIRA EDIÇÃO</span></div></footer></div>`;
   $('[data-action="import-images"]').insertAdjacentHTML('afterend', `<button class="nav-item" data-action="import-folder">${icon('folder')}Importar pasta</button>`);
   document.querySelectorAll('[data-color]').forEach((element) => element.style.setProperty('--label-color', element.dataset.color));
@@ -160,8 +162,10 @@ function render() {
   observer.disconnect();
   observer.observe($('#stage'));
   fitImage();
-  $('#stage').scrollLeft = scroll.x;
-  $('#stage').scrollTop = scroll.y;
+  for (const item of scroll) {
+    $(item.selector).scrollLeft = item.x;
+    $(item.selector).scrollTop = item.y;
+  }
   if (focusSelector) document.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
 
@@ -169,8 +173,13 @@ function fitImage() {
   const image = currentImage();
   const stage = $('#stage');
   if (!stage || !image) return;
-  fitScale = Math.min((stage.clientWidth - 60) / image.width, (stage.clientHeight - 60) / image.height, 1);
-  fitScale = Math.max(fitScale, .02);
+  const rect = stage.getBoundingClientRect();
+  const viewport = [image.id, image.width, image.height, rect.width, rect.height].join(':');
+  if (viewport !== fittedViewport) {
+    fittedViewport = viewport;
+    // O zoom pode exibir barras de rolagem; elas não devem recalcular a escala base.
+    fitScale = Math.max(.02, Math.min((stage.clientWidth - 60) / image.width, (stage.clientHeight - 60) / image.height, 1));
+  }
   const surface = $('.image-surface');
   surface.style.width = `${image.width * fitScale * zoom}px`;
   surface.style.height = `${image.height * fitScale * zoom}px`;
@@ -179,6 +188,7 @@ function fitImage() {
 }
 
 function refreshProgress() {
+  const scrollLeft = $('.thumbnails').scrollLeft;
   const image = currentImage();
   const count = project.images.filter((item) => item.reviewed).length;
   const percent = Math.round(count / project.images.length * 100);
@@ -193,6 +203,7 @@ function refreshProgress() {
   $('.inspector-footnote').textContent = image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.';
   const filtered = project.images.filter((item) => filter === 'all' || (filter === 'done' ? item.reviewed : !item.reviewed));
   $('.thumbnails').innerHTML = filtered.map(thumbnailMarkup).join('') + (!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : '') + `<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button>`;
+  $('.thumbnails').scrollLeft = scrollLeft;
 }
 
 function thumbnailMarkup(item) {
@@ -227,6 +238,7 @@ function point(event) {
 function pointerDown(event) {
   if (event.button !== 0 || importing || !ready) return;
   event.preventDefault();
+  document.activeElement?.blur();
   const svg = $('.annotation-layer');
   const origin = point(event);
   const annotation = event.target.closest('[data-annotation]');
@@ -279,6 +291,11 @@ function pointerUp(event) {
   if (operation.type === 'draw') {
     const box = normalizeBox(operation.start, point(event), image.width, image.height);
     if (box) {
+      if (image.annotations.length >= MAX_ANNOTATIONS_PER_IMAGE || project.images.reduce((count, item) => count + item.annotations.length, 0) >= MAX_PROJECT_ANNOTATIONS) {
+        render();
+        notify('Limite de anotações atingido: 10.000 por imagem ou 100.000 por projeto.', true);
+        return;
+      }
       remember();
       const annotation = { id: uid(), labelId, ...box };
       image.annotations.push(annotation);
@@ -369,7 +386,7 @@ async function importImages(files, folder = false) {
     const right = b.webkitRelativePath || b.name;
     return collator.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0);
   });
-  if (project.images.length + files.length > 100) { notify('Este projeto suporta até 100 imagens. Importe um lote menor.', true); return; }
+  if (project.images.length >= 100) { notify('Este projeto suporta até 100 imagens. Importe um lote menor.', true); return; }
   importing = true;
   const imported = [];
   const errors = [];
@@ -382,6 +399,7 @@ async function importImages(files, folder = false) {
   for (const [index, file] of files.entries()) {
     status.textContent = `Abrindo imagem ${index + 1} de ${files.length}…`;
     try {
+      if (project.images.length + imported.length >= 100) throw new Error('limite de 100 imagens por projeto');
       const name = file.webkitRelativePath || file.name;
       if (name.length > 1024 || /^(\/|[a-z]:)/i.test(name) || name.replaceAll('\\', '/').split('/').some((part) => !part || part === '.' || part === '..')) throw new Error('caminho inválido ou acima de 1024 caracteres');
       if (mime(file) === 'image/') throw new Error('formato não suportado');
@@ -551,14 +569,14 @@ document.addEventListener('change', (event) => {
     render();
   }
   if (target.dataset.geometry && currentBox()) {
-    if (!target.validity.valid || !Number.isFinite(target.valueAsNumber)) { notify('Informe uma medida válida dentro dos limites da imagem.', true); target.value = currentBox()[target.dataset.geometry]; return; }
+    if (!target.validity.valid || !Number.isFinite(target.valueAsNumber) || (['width', 'height'].includes(target.dataset.geometry) && target.valueAsNumber <= 0)) { notify('Informe uma medida válida dentro dos limites da imagem.', true); target.value = currentBox()[target.dataset.geometry]; return; }
     remember();
     const image = currentImage();
     Object.assign(currentBox(), clampBox({ ...currentBox(), [target.dataset.geometry]: target.valueAsNumber }, image.width, image.height));
     image.reviewed = false;
     changed();
     renderOverlay();
-    for (const input of document.querySelectorAll('[data-geometry]')) input.value = Math.round(currentBox()[input.dataset.geometry] * 100) / 100;
+    for (const input of document.querySelectorAll('[data-geometry]')) input.value = currentBox()[input.dataset.geometry];
     refreshProgress();
   }
 });
@@ -604,10 +622,11 @@ document.addEventListener('drop', (event) => {
   if (ready && !document.querySelector('dialog[open]')) importImages([...event.dataTransfer.files]);
 });
 window.addEventListener('beforeunload', (event) => {
+  if (sessionBlocked) return;
   if (!ready || importing || exporting || savedRevision < revision || saveError || loadingError || drag) {
     event.preventDefault();
     event.returnValue = '';
-    if (!loadingError && !drag && !importing) persist();
+    if (ready && !loadingError && !drag && !importing) persist();
   }
 });
 
@@ -630,4 +649,16 @@ async function start() {
   render();
 }
 
-start();
+function blockSession(message) {
+  sessionBlocked = true;
+  $('#app').innerHTML = `<main class="empty-inspector"><h1>Seu projeto está protegido.</h1><p>${escapeHTML(message)}</p></main>`;
+}
+
+if (navigator.locks) {
+  navigator.locks.request('anoint-project', { ifAvailable: true }, async (lock) => {
+    if (!lock) { blockSession('O Anoint já está aberto neste navegador. Continue na outra aba para evitar sobrescrever suas anotações.'); return; }
+    await start();
+    // A trava permanece até fechar a aba para impedir gravações concorrentes.
+    await new Promise(() => {});
+  }).catch(() => blockSession('Não foi possível proteger o projeto local. Reabra o aplicativo antes de editar.'));
+} else blockSession('Este navegador não oferece o bloqueio necessário para proteger suas anotações. Use o aplicativo Electron.');
