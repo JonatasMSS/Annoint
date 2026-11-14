@@ -9,8 +9,10 @@
     "start": "electron .",
     "preview": "node scripts/serve.js",
     "test:ui": "electron scripts/check-ui.cjs",
+    "test:scenes": "electron scripts/check-scenes-ui.cjs",
     "test:native": "electron scripts/check-native-ui.cjs",
     "fixtures": "electron scripts/create-test-images.cjs",
+    "fixtures:scenes": "node scripts/create-annotation-scenes.cjs",
     "test": "node --test"
   },
   "devDependencies": {

@@ -67,6 +67,8 @@ Arquivos JSON têm limite de 256 MiB. O modelo valida IDs, referências de class
 ```sh
 npm test
 npm run test:ui
+npm run fixtures:scenes
+npm run test:scenes
 npm run test:native
 npm run fixtures
 ```
@@ -74,6 +76,10 @@ npm run fixtures
 Os testes Node cobrem coordenadas, bordas fracionárias, dados inválidos, ida e volta do JSON, limites, commit/abort do IndexedDB, isolamento do Electron, privacidade do servidor local e conteúdo/CRC dos ZIPs YOLO e TrackNet. `test:ui` abre uma janela oculta do Electron com banco temporário separado, verifica os fluxos de anotação, importação de arquivos e pastas, persistência, exportação JSON/YOLO e bloqueio de TrackNet, e encerra. Ele precisa do executável do Electron instalado.
 
 `test-images/valid` contém dez imagens sintéticas PNG/JPEG para testes manuais. `test-images/invalid` contém quatro arquivos corrompidos e dois formatos não aceitos. `manifest.json` registra dimensões e caixas esperadas em pixels. `npm run fixtures` regenera e verifica esse conjunto sem downloads.
+
+`npm run fixtures:scenes` gera **100 cenas determinísticas PNG** em `test-scenes/images`, com formas geométricas e desenhos de carro, pessoa e casa, posições/tamanhos/cores variados e cinco imagens sem objetos. Importe a pasta para anotar; `test-scenes/manifest.json` é o gabarito separado com classes, caixas em pixels e hashes para futuras avaliações de agentes MCP. O gerador usa Node, sem dependências novas. Imagens, manifesto e contrato de classes gerados ficam fora do Git; gere-os antes de executar `test:scenes` em um clone novo. São 100 imagens: a troca entre lotes pode ser testada em um projeto que já contenha outra imagem. Veja [as instruções e limites](test-scenes/README.md).
+
+`npm run test:scenes` verifica esse conjunto na interface real do Electron, com perfil isolado: desenha as 346 caixas usando ponteiro e inspetor, testa lotes/cache, progresso, reload e downloads JSON/YOLO comparados com o gabarito. Capturas, relatório e uma cópia anotada para reabrir ficam em `test-results/scenes-ui/`. Veja [o relatório das cenas](docs/QA-cenas.md).
 
 O teste de interface importa 501 arquivos, troca lotes, confere liberação do cache, progresso, reabertura, exportação de todos os lotes, exclusão até vazio e também anota essas imagens por eventos reais de ponteiro, verifica zoom/rolagem, oito alças, classes, atalhos, limites, trava entre janelas e um download real. Gera capturas e resultados em `test-results/`, que fica fora do Git. Veja [o relatório de QA](docs/QA-interface.md) para cobertura, correções e limites da verificação.
 
