@@ -23,7 +23,7 @@ function segment(name) {
   return safe;
 }
 
-function planImages(images, tracknet) {
+function planImages(images, tracknet, sourceTypes) {
   const directories = new Map([['', '']]);
   const paths = new Set(tracknet ? ['label.csv'] : []);
   const stems = new Set();
@@ -63,7 +63,7 @@ function planImages(images, tracknet) {
       }
       parent = directories.get(original);
     }
-    const type = /^data:image\/([^;]+);base64,/.exec(image.src)?.[1];
+    const type = sourceTypes.get(image.src) || /^data:image\/([^;]+);base64,/.exec(image.src)?.[1];
     if (!extensions[type]) throw new Error('Imagem SVG/demo não suportada na exportação: ' + image.name + '. Importe uma imagem raster original.');
     if (!tracknet && type === 'gif') throw new Error('YOLO não aceita GIF para treino: ' + image.name + '. Converta os frames para PNG ou JPEG antes de importar.');
     const dot = file.lastIndexOf('.');
@@ -82,6 +82,7 @@ function zip(entries) {
   for (const [path, value] of entries) {
     const name = encoder.encode(path);
     const bytes = typeof value === 'string' ? encoder.encode(value) : value;
+    if (offset + bytes.length + 1024 > 0xffffffff || entries.length > 65535) throw new Error('Dataset excede o limite ZIP de 4 GiB/65535 arquivos. Exporte um projeto menor.');
     const crc = crc32(bytes);
     const header = new Uint8Array(30);
     const h = new DataView(header.buffer);
@@ -139,14 +140,35 @@ export async function exportDataset(project, format, options = {}) {
   if (format === 'yolo' && data.labels.some(label => /[\x00-\x1f\x7f\u0085\u2028\u2029]/.test(label.name))) {
     throw new Error('YOLO exige nomes de classes sem quebras de linha ou caracteres de controle.');
   }
-  const images = planImages(data.images, format === 'tracknet');
+  const sources = new Map();
+  const sourceTypes = new Map();
+  let sourceBytes = 0;
+  for (const image of data.images) {
+    if (/^(asset:|anoint-image:\/\/)/.test(image.src)) {
+      if (typeof options.loadSource !== 'function') throw new Error('Leitor local necessário para exportar as imagens.');
+      const blob = await options.loadSource(image.src);
+      sources.set(image.src, blob);
+      sourceTypes.set(image.src, blob.type.replace('image/', ''));
+      sourceBytes += blob.size;
+    } else {
+      const payload = image.src.slice(image.src.indexOf(',') + 1);
+      sourceBytes += payload.length * .75;
+    }
+    // Reserva cabeçalhos e labels antes de materializar os buffers ZIP32.
+    if (sourceBytes > 0xf8000000) throw new Error('Dataset excede o limite seguro de 3,875 GiB de imagens para ZIP. Divida o projeto antes de exportar.');
+  }
+  const images = planImages(data.images, format === 'tracknet', sourceTypes);
   const labelIndexes = new Map(data.labels.map((label, index) => [label.id, index]));
   const entries = [];
   const sequences = new Map();
   for (const { image, path, parent } of images) {
-    const binary = atob(image.src.slice(image.src.indexOf(',') + 1));
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    let bytes;
+    if (sources.has(image.src)) bytes = new Uint8Array(await sources.get(image.src).arrayBuffer());
+    else {
+      const binary = atob(image.src.slice(image.src.indexOf(',') + 1));
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    }
     if (format === 'yolo') {
       entries.push(['images/' + path, bytes]);
       const lines = image.annotations.map(box => [

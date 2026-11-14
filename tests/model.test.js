@@ -104,7 +104,7 @@ test('rejeita dimensões e caixas inválidas sem corrigir importação silencios
 });
 
 test('limita tamanho de fontes e quantidade de entidades antes de copiar', () => {
-  assert.throws(() => createProject(Array(501).fill(image), [label]), /500/);
+  assert.throws(() => createProject(Array(10001).fill(image), [label]), /10000/);
   assert.throws(() => createProject([], Array(1001).fill(label)), /1000/);
   assert.throws(() => createProject([{ ...image, annotations: Array(10001).fill(box) }], [label]), /10000/);
   assert.throws(() => createProject([{ ...image, src: 'data:image/png;base64,' + 'A'.repeat(32 * 1024 * 1024) }], [label]), /32 MiB/);
@@ -218,6 +218,7 @@ test('Electron carrega index.html com isolamento e bloqueia permissões e navega
         setWindowOpenHandler(fn) { windowOpen = fn; },
       };
     }
+    on() {}
     setMenu(value) { assert.equal(value, null); }
     loadFile(value) { loaded = value; return Promise.resolve(); }
   }
@@ -225,19 +226,23 @@ test('Electron carrega index.html com isolamento e bloqueia permissões e navega
   runInNewContext(await (await import('node:fs/promises')).readFile(new URL('../electron/main.cjs', import.meta.url), 'utf8'), {
     require(name) {
       if (name === 'node:path') return path;
+      if (name === 'node:url') return { pathToFileURL: value => ({ href: 'file://' + value }) };
+      if (name === './native-files.cjs') return { registerImageScheme() {}, registerNativeFiles: async () => ({ close() {} }) };
       assert.equal(name, 'electron');
-      return { BrowserWindow: Window, session: { defaultSession: session }, app: { requestSingleInstanceLock: () => true, whenReady: () => ready, on() {}, quit() { assert.fail('Inicialização falhou'); } }, dialog: { showErrorBox() { assert.fail('Erro inesperado'); } } };
+      return { BrowserWindow: Window, session: { defaultSession: session }, app: { getPath: () => '/anoint/profile', requestSingleInstanceLock: () => true, whenReady: () => ready, on() {}, quit() { assert.fail('Inicialização falhou'); } }, dialog: { showErrorBox() { assert.fail('Erro inesperado'); } } };
     },
     __dirname: '/anoint/electron',
     process: { platform: 'win32' },
   });
   await ready;
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(loaded, path.join('/anoint/electron', '..', 'index.html'));
   assert.equal(options.webPreferences.contextIsolation, true);
   assert.equal(options.webPreferences.nodeIntegration, false);
   assert.equal(options.webPreferences.sandbox, true);
   assert.equal(options.webPreferences.webSecurity, true);
   assert.equal(options.webPreferences.webviewTag, false);
+  assert.equal(options.webPreferences.preload, path.join('/anoint/electron', 'preload.cjs'));
   assert.equal(windowOpen().action, 'deny');
   for (const name of ['will-navigate', 'will-frame-navigate', 'will-redirect', 'will-attach-webview']) {
     let blocked = false;

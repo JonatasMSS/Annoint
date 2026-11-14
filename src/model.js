@@ -2,6 +2,8 @@ const MAX_SOURCE = 32 * 1024 * 1024;
 const MAX_PROJECT_SOURCE = 128 * 1024 * 1024;
 export const MAX_ANNOTATIONS_PER_IMAGE = 10_000;
 export const MAX_PROJECT_ANNOTATIONS = 100_000;
+export const MAX_IMAGES = 10_000;
+export const BATCH_SIZE = 100;
 
 function dimensions(width, height) {
   return Number.isFinite(width) && Number.isFinite(height)
@@ -57,6 +59,7 @@ function uniqueId(value, ids) {
 
 function validSource(src) {
   if (src === './assets/demo-street.svg') return true;
+  if (typeof src === 'string' && /^(asset:|anoint-image:\/\/)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(src)) return true;
   if (typeof src !== 'string' || src.length > MAX_SOURCE) return false;
   const prefix = /^data:image\/(png|jpeg|webp|gif|avif|bmp|svg\+xml);base64,/.exec(src);
   if (!prefix) return false;
@@ -69,7 +72,7 @@ function validSource(src) {
 export function validateProject(value) {
   check(value !== null && typeof value === 'object' && value.version === 1, 'Versão de projeto inválida.');
   check(Array.isArray(value.labels) && value.labels.length <= 1000, 'Lista de classes inválida (máximo 1000).');
-  check(Array.isArray(value.images) && value.images.length <= 500, 'Lista de imagens inválida (máximo 500).');
+  check(Array.isArray(value.images) && value.images.length <= MAX_IMAGES, `Lista de imagens inválida (máximo ${MAX_IMAGES}).`);
   const labelIds = new Set();
   const imageIds = new Set();
   const annotationIds = new Set();
