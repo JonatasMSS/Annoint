@@ -15,6 +15,9 @@ test('a prévia serve a interface e mantém os arquivos do workspace privados', 
     const script = await fetch(`${url}/src/app.js`);
     assert.equal(script.status, 200);
     assert.match(script.headers.get('content-type'), /javascript/);
+    const exporter = await fetch(`${url}/src/export.js`);
+    assert.equal(exporter.status, 200);
+    assert.match(await exporter.text(), /export async function exportDataset/);
     for (const route of ['/package.json', '/.maestri/roles', '/node_modules/electron/index.js', '/..%5Cpackage.json', '/src/../package.json']) {
       assert.equal((await fetch(`${url}${route}`)).status, 404);
     }
