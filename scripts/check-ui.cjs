@@ -21,8 +21,8 @@ app.whenReady().then(async () => {
     for (let i = 0; i < 100; i++) { if (await page(code)) return; await pause(50); }
     throw new Error(`Tempo esgotado: ${code}`);
   };
-  const mouse = (type, x, y) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
-  const key = (keyCode, modifiers = []) => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); };
+  const mouse = (type, x, y) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, modifiers: type === 'mouseUp' ? [] : ['leftbuttondown'] });
+  const key = (name, modifiers = []) => { const keyCode = ({ ArrowRight: 'Right', ArrowLeft: 'Left' })[name] || name; win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); };
   const bounds = (selector) => page(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
   const saved = () => waitFor("document.querySelector('.save-status')?.textContent === 'Todas as alterações salvas'");
   const exportedZip = async () => {
@@ -61,7 +61,6 @@ app.whenReady().then(async () => {
     key('Tab');
     await waitFor("document.activeElement.id === 'box-y'");
     assert.equal(await page('document.activeElement.id'), 'box-y');
-    await page('document.activeElement.blur()');
     const box = await bounds('.annotation.is-selected .box');
     mouse('mouseDown', box.x + box.width / 2, box.y + box.height / 2);
     await pause(30);
@@ -151,7 +150,7 @@ app.whenReady().then(async () => {
     await waitFor("document.querySelectorAll('.thumbnail').length === 5");
     assert.deepEqual((await page("import('./src/storage.js').then(m=>m.loadProject())")).images.slice(2).map(image => image.name), withFolder.images.slice(2).map(image => image.name));
 
-    await page("HTMLAnchorElement.prototype.click=function(){}; window.__makeUrl=URL.createObjectURL; URL.createObjectURL=function(blob){window.__exported=blob;return window.__makeUrl(blob)}; document.querySelector('[data-action=export]').click(); document.querySelector('#export-format').value='yolo'; document.querySelector('#export-format').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('#export-form').requestSubmit()");
+    await page("window.__nativeAnchorClick=HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click=function(){}; window.__makeUrl=URL.createObjectURL; URL.createObjectURL=function(blob){window.__exported=blob;return window.__makeUrl(blob)}; document.querySelector('[data-action=export]').click(); document.querySelector('#export-format').value='yolo'; document.querySelector('#export-format').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('#export-form').requestSubmit()");
     await waitFor("!document.querySelector('#export-dialog').open");
     const yolo = await exportedZip();
     assert.equal(yolo.size, 10); // Quatro imagens reais, quatro labels e dois metadados.
@@ -176,6 +175,7 @@ app.whenReady().then(async () => {
     await waitFor("document.querySelector('#export-error').textContent.includes('apenas um objeto')");
     assert.equal(await page('window.__previousExport === window.__exported'), true);
     assert.equal(await page("document.querySelector('#export-dialog').open"), true);
+    await require('./check-ui-fixtures.cjs')({ win, page, waitFor, mouse, key, bounds, saved, exportedZip, pause, testDirectory });
     assert.equal(errors.length, 0, errors.join('\n'));
     console.log('UI OK: anotação, persistência, importação PNG/pastas/subpastas, ordem natural, MIME ausente, desfazer/refazer, reload, JSON, ZIP YOLO/TrackNet e rejeição de múltiplos alvos.');
     win.destroy();

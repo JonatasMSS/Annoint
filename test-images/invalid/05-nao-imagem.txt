@@ -1,0 +1,1 @@
+Arquivo nao-imagem para testar filtro de pasta.

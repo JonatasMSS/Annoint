@@ -41,6 +41,8 @@ Atalhos: **B** caixa, **V** selecionar, **←/→** navegar, **C** concluir, **D
 
 Há um projeto local ativo. Abrir outro pede confirmação antes de substituir o atual. Exporte JSON para guardar outras cópias. Os arquivos permanecem no dispositivo; nenhuma imagem é enviada a um servidor. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
 
+O Electron mantém uma única instância. No navegador, uma trava por origem impede que outra aba edite o mesmo banco ao mesmo tempo. Use um navegador com Web Locks; a segunda aba informa que o projeto já está aberto e não grava dados.
+
 A importação de imagens pela interface aceita até 100 imagens no projeto, 15 MiB por arquivo, 80 MiB de fontes em base64, 30.000 px por lado e 100 milhões de pixels por imagem. GIFs animados permanecem animados; a anotação é por arquivo, sem extração de frames nesta entrega.
 
 O JSON é um formato próprio, versão 1, com `labels` e `images`. Cada imagem mantém `id`, `name`, `src`, `width`, `height`, `reviewed` e `annotations`. Cada anotação tem `id`, `labelId`, `x`, `y`, `width` e `height`. As coordenadas são absolutas, em pixels naturais. Imagens importadas são incorporadas como data URLs; o exemplo acompanha o aplicativo em `assets/demo-street.svg`.
@@ -63,9 +65,14 @@ Arquivos JSON têm limite de 256 MiB. O modelo valida IDs, referências de class
 ```sh
 npm test
 npm run test:ui
+npm run fixtures
 ```
 
 Os testes Node cobrem coordenadas, bordas fracionárias, dados inválidos, ida e volta do JSON, limites, commit/abort do IndexedDB, isolamento do Electron, privacidade do servidor local e conteúdo/CRC dos ZIPs YOLO e TrackNet. `test:ui` abre uma janela oculta do Electron com banco temporário separado, verifica os fluxos de anotação, importação de arquivos e pastas, persistência e exportação nos três formatos, e encerra. Ele precisa do executável do Electron instalado.
+
+`test-images/valid` contém dez imagens sintéticas PNG/JPEG para testes manuais. `test-images/invalid` contém quatro arquivos corrompidos e dois formatos não aceitos. `manifest.json` registra dimensões e caixas esperadas em pixels. `npm run fixtures` regenera e verifica esse conjunto sem downloads.
+
+O teste de interface também anota essas imagens por eventos reais de ponteiro, verifica zoom/rolagem, oito alças, classes, atalhos, limites, trava entre janelas e um download real. Gera capturas e resultados em `test-results/`, que fica fora do Git. Veja [o relatório de QA](docs/QA-interface.md) para cobertura, correções e limites da verificação.
 
 ## Estrutura
 

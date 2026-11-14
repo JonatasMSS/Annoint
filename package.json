@@ -9,6 +9,7 @@
     "start": "electron .",
     "preview": "node scripts/serve.js",
     "test:ui": "electron scripts/check-ui.cjs",
+    "fixtures": "electron scripts/create-test-images.cjs",
     "test": "node --test"
   },
   "devDependencies": {

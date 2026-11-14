@@ -1,0 +1,497 @@
+{
+  "version": 1,
+  "generator": "scripts/create-test-images.cjs",
+  "coordinates": "Pixels naturais, origem no canto superior esquerdo; caixas {x,y,width,height}, bordas direita/inferior exclusivas.",
+  "labels": [
+    {
+      "id": "red",
+      "name": "Retângulo vermelho",
+      "color": "#ef4444"
+    },
+    {
+      "id": "blue",
+      "name": "Retângulo azul",
+      "color": "#2563eb"
+    }
+  ],
+  "verification": {
+    "decoder": "Electron nativeImage.createFromBuffer",
+    "electron": "44.2.0",
+    "validDecoded": 10,
+    "corruptRejected": 4,
+    "transparentAlphaChecked": true
+  },
+  "imageAndInvalidBytes": 7646,
+  "importBehavior": {
+    "source": "src/app.js: importImages(files, folder = false)",
+    "recursiveSelection": "input webkitdirectory inclui subpastas; image.name preserva webkitRelativePath, inclusive o nome da pasta escolhida.",
+    "order": "Intl.Collator en, numeric:true, sensitivity:variant; desempate pela string original.",
+    "missingMime": "A extensão é usada quando o MIME não é um tipo aceito; .PNG maiúsculo é reconhecido.",
+    "duplicateBasename": "Não há deduplicação: subpastas preservam caminhos distintos; seleção avulsa achata nomes e permite dois frame10.png.",
+    "repeatedImport": "Importar novamente adiciona novas imagens com novos IDs.",
+    "initialAnnotations": "Importação cria annotations:[] e reviewed:false. As caixas abaixo são referências manuais, não são carregadas automaticamente.",
+    "limits": "100 imagens no projeto (inclui a demonstração), 15 MiB por arquivo, 80 MiB de origens em base64; dimensões até 30000 por lado e 100 milhões de pixels.",
+    "individualUnsupported": "Rejeição se fornecido por drop/automação; o seletor pode ocultar extensões fora do accept."
+  },
+  "folderScenarios": [
+    {
+      "selectedDirectory": "valid",
+      "acceptedNamesInOrder": [
+        "valid/01-paisagem.png",
+        "valid/02-retrato.jpg",
+        "valid/03-quadrada.png",
+        "valid/04-pequena.png",
+        "valid/05-transparência.png",
+        "valid/06-compacta.jpg",
+        "valid/cenas com espaço/ação – verão 01.png",
+        "valid/seq2/frame2.PNG",
+        "valid/seq2/frame10.png",
+        "valid/seq10/frame10.png"
+      ],
+      "rejectedNames": [],
+      "ignoredNames": []
+    },
+    {
+      "selectedDirectory": "invalid",
+      "acceptedNamesInOrder": [],
+      "rejectedNames": [
+        "invalid/01-vazio.png",
+        "invalid/02-texto.jpg",
+        "invalid/03-truncado.png",
+        "invalid/04-assinatura-falsa.webp"
+      ],
+      "ignoredNames": [
+        "invalid/05-nao-imagem.txt",
+        "invalid/06-vetor.svg"
+      ]
+    },
+    {
+      "selectedDirectory": "test-images",
+      "acceptedNamesInOrder": [
+        "test-images/valid/01-paisagem.png",
+        "test-images/valid/02-retrato.jpg",
+        "test-images/valid/03-quadrada.png",
+        "test-images/valid/04-pequena.png",
+        "test-images/valid/05-transparência.png",
+        "test-images/valid/06-compacta.jpg",
+        "test-images/valid/cenas com espaço/ação – verão 01.png",
+        "test-images/valid/seq2/frame2.PNG",
+        "test-images/valid/seq2/frame10.png",
+        "test-images/valid/seq10/frame10.png"
+      ],
+      "rejectedNames": [
+        "test-images/invalid/01-vazio.png",
+        "test-images/invalid/02-texto.jpg",
+        "test-images/invalid/03-truncado.png",
+        "test-images/invalid/04-assinatura-falsa.webp"
+      ],
+      "ignoredNames": [
+        "test-images/invalid/05-nao-imagem.txt",
+        "test-images/invalid/06-vetor.svg",
+        "test-images/manifest.json",
+        "test-images/README.md"
+      ]
+    },
+    {
+      "selectedDirectory": "seq2",
+      "acceptedNamesInOrder": [
+        "seq2/frame2.PNG",
+        "seq2/frame10.png"
+      ],
+      "rejectedNames": [],
+      "ignoredNames": []
+    }
+  ],
+  "files": [
+    {
+      "path": "valid/01-paisagem.png",
+      "mime": "image/png",
+      "bytes": 1886,
+      "sha256": "c04128cdf3bbf15b8420d722754f29594a2dd978858f1b4964fc8f733c2c2b8f",
+      "decoded": {
+        "width": 640,
+        "height": 360
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 32,
+          "y": 24,
+          "width": 128,
+          "height": 80,
+          "alpha": 255
+        },
+        {
+          "labelId": "blue",
+          "x": 420,
+          "y": 220,
+          "width": 180,
+          "height": 100,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/02-retrato.jpg",
+      "mime": "image/jpeg",
+      "bytes": 2334,
+      "sha256": "43136b972854ff30bbf2fbeff3ae15485755e0614c33d32ffc36348ab1ef7297",
+      "decoded": {
+        "width": 240,
+        "height": 480
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 24,
+          "y": 32,
+          "width": 80,
+          "height": 160,
+          "alpha": 255
+        },
+        {
+          "labelId": "blue",
+          "x": 128,
+          "y": 300,
+          "width": 88,
+          "height": 144,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/03-quadrada.png",
+      "mime": "image/png",
+      "bytes": 342,
+      "sha256": "bd596f1d1542a863830ab95d811b21fac8cc4f3cf987d9f0ce20828d31986cb3",
+      "decoded": {
+        "width": 128,
+        "height": 128
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32,
+          "alpha": 255
+        },
+        {
+          "labelId": "blue",
+          "x": 96,
+          "y": 96,
+          "width": 32,
+          "height": 32,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/04-pequena.png",
+      "mime": "image/png",
+      "bytes": 85,
+      "sha256": "323945bdc8803a14bafd5df2b4a5a0dd471839922542068a5f569d1e09af4a72",
+      "decoded": {
+        "width": 8,
+        "height": 8
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 2,
+          "y": 2,
+          "width": 4,
+          "height": 4,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/05-transparência.png",
+      "mime": "image/png",
+      "bytes": 261,
+      "sha256": "f548d4c5b102654f42db4e5493920a33a14abf8335bdab44cabe792cac6a518d",
+      "decoded": {
+        "width": 160,
+        "height": 96
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 12,
+          "y": 12,
+          "width": 40,
+          "height": 32,
+          "alpha": 128
+        },
+        {
+          "labelId": "blue",
+          "x": 128,
+          "y": 72,
+          "width": 32,
+          "height": 24,
+          "alpha": 255
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "path": "valid/06-compacta.jpg",
+      "mime": "image/jpeg",
+      "bytes": 1210,
+      "sha256": "3620c8b654b577920b48c068d17569557400f805a3be79cb437fa0abdc0ecc75",
+      "decoded": {
+        "width": 48,
+        "height": 32
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 4,
+          "y": 4,
+          "width": 12,
+          "height": 16,
+          "alpha": 255
+        },
+        {
+          "labelId": "blue",
+          "x": 28,
+          "y": 12,
+          "width": 16,
+          "height": 16,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/cenas com espaço/ação – verão 01.png",
+      "mime": "image/png",
+      "bytes": 728,
+      "sha256": "c3ff3b459e971cbd6a25bee81d8e03904da326dd4e1081a14e4639004729ffdd",
+      "decoded": {
+        "width": 320,
+        "height": 180
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 16,
+          "y": 20,
+          "width": 64,
+          "height": 48,
+          "alpha": 255
+        },
+        {
+          "labelId": "blue",
+          "x": 240,
+          "y": 100,
+          "width": 64,
+          "height": 64,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/seq2/frame2.PNG",
+      "mime": "image/png",
+      "bytes": 172,
+      "sha256": "b552b6b0aefd6af0be6af57f3b4b6c33fa8fc1ba2351bc36f6fe161e65bcb2ab",
+      "decoded": {
+        "width": 96,
+        "height": 64
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [],
+      "transparent": false
+    },
+    {
+      "path": "valid/seq2/frame10.png",
+      "mime": "image/png",
+      "bytes": 185,
+      "sha256": "2bdb175f5061b8d0517a30e26c487318913106e71a4a6736d26171f96ce05b99",
+      "decoded": {
+        "width": 96,
+        "height": 64
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 8,
+          "y": 16,
+          "width": 16,
+          "height": 16,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "valid/seq10/frame10.png",
+      "mime": "image/png",
+      "bytes": 188,
+      "sha256": "fecab2d86e11d82a36874b683820722c5c6920607060be39efeff9b7705069d4",
+      "decoded": {
+        "width": 96,
+        "height": 64
+      },
+      "kind": "valid",
+      "expectedImport": {
+        "individual": "accepted",
+        "folder": "accepted"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 64,
+          "y": 16,
+          "width": 16,
+          "height": 16,
+          "alpha": 255
+        }
+      ],
+      "transparent": false
+    },
+    {
+      "path": "invalid/01-vazio.png",
+      "mime": "image/png",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "decoded": null,
+      "kind": "corrupt",
+      "expectedImport": {
+        "individual": "decode-error",
+        "folder": "decode-error"
+      },
+      "boxes": []
+    },
+    {
+      "path": "invalid/02-texto.jpg",
+      "mime": "image/jpeg",
+      "bytes": 35,
+      "sha256": "7393bf0e39a13feb66dba02ad9a88b023862b1509aa7e7c0253b85206bdd3f1d",
+      "decoded": null,
+      "kind": "corrupt",
+      "expectedImport": {
+        "individual": "decode-error",
+        "folder": "decode-error"
+      },
+      "boxes": []
+    },
+    {
+      "path": "invalid/03-truncado.png",
+      "mime": "image/png",
+      "bytes": 33,
+      "sha256": "95e7c84ebf699b279747fd689e1c9b49ed7b2cc21497658d303dbec3086353a6",
+      "decoded": null,
+      "kind": "corrupt",
+      "expectedImport": {
+        "individual": "decode-error",
+        "folder": "decode-error"
+      },
+      "boxes": []
+    },
+    {
+      "path": "invalid/04-assinatura-falsa.webp",
+      "mime": "image/webp",
+      "bytes": 12,
+      "sha256": "3fe79651a92ea3850c3fc3dd9519a67c7f70b598fa238a3fd92042f6446e6452",
+      "decoded": null,
+      "kind": "corrupt",
+      "expectedImport": {
+        "individual": "decode-error",
+        "folder": "decode-error"
+      },
+      "boxes": []
+    },
+    {
+      "path": "invalid/05-nao-imagem.txt",
+      "mime": "text/plain",
+      "bytes": 48,
+      "sha256": "62cfca08457f39cfef13f772d671f69721996bd07d22dc401677d2dc09f8957e",
+      "decoded": null,
+      "kind": "unsupported",
+      "expectedImport": {
+        "individual": "unsupported-format",
+        "folder": "ignored"
+      },
+      "boxes": []
+    },
+    {
+      "path": "invalid/06-vetor.svg",
+      "mime": "image/svg+xml",
+      "bytes": 127,
+      "sha256": "ed0c69399047088cda8b02e738ab7cb63e0b1b12bf29e6b69ba6ad1b8a2d621e",
+      "decoded": null,
+      "declaredDimensions": {
+        "width": 40,
+        "height": 24
+      },
+      "kind": "unsupported",
+      "expectedImport": {
+        "individual": "unsupported-format",
+        "folder": "ignored"
+      },
+      "boxes": [
+        {
+          "labelId": "red",
+          "x": 4,
+          "y": 4,
+          "width": 12,
+          "height": 12,
+          "alpha": 255
+        }
+      ]
+    }
+  ]
+}
