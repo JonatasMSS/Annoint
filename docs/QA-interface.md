@@ -1,5 +1,7 @@
 # Verificação da interface do Anoint
 
+Relatório da rodada anterior. A versão atual usa lotes de 100, aceita até 10.000 imagens e desabilita TrackNet; consulte [a validação de lotes e exclusão](QA-lotes.md).
+
 ## Atualização e isolamento
 
 A `main` foi atualizada com `origin/main` em `9910f6e`. Os históricos local e remoto divergiam; a integração foi feita por merge, sem conflitos e preservando ambos.

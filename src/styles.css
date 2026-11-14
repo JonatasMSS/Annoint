@@ -61,13 +61,11 @@ svg.icon { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: curren
 .coming-soon { color: var(--text-muted); background: var(--surface-muted); font-size: 9px; font-weight: 600; padding: 4px 6px; border-radius: 4px; letter-spacing: .2px; }
 .sidebar-help { display: flex; align-items: center; gap: 8px; color: var(--text-muted); background: none; border: 0; margin: 15px 5px 0; padding: 5px; font-size: 11px; }
 .workspace { grid-column: 2; grid-row: 2; display: flex; min-width: 0; flex-direction: column; overflow: hidden; background: transparent; }
-.workspace-heading { padding: 25px 28px 22px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .eyebrow { text-transform: uppercase; font-size: 9px; letter-spacing: 1.4px; color: var(--text-muted); margin: 0 0 7px; font-weight: 600; }
 h1 { font-size: 21px; letter-spacing: -.7px; font-weight: 630; margin: 0; }
-.workspace-heading .subtitle { font-size: 11px; color: var(--text-muted); margin: 7px 0 0; }
 .manual-badge { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .manual-badge span { width: 5px; height: 5px; border-radius: 50%; background: #6e9a83; }
-.editor { margin: 0 26px; border: 1px solid #fffaf2d9; border-radius: 14px; overflow: hidden; flex: 1; min-height: 200px; display: flex; flex-direction: column; background: #fffaf240; box-shadow: inset 0 1px 0 #fff, 0 12px 32px #503c2814; }
+.editor { margin: 12px 12px 0; border: 1px solid #fffaf2d9; border-radius: 14px; overflow: hidden; flex: 1; min-height: 200px; display: flex; flex-direction: column; background: #fffaf240; box-shadow: inset 0 1px 0 #fff, 0 12px 32px #503c2814; }
 .editor-toolbar { height: 53px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--glass-highlight), var(--glass-surface); flex: 0 0 auto; }
 .tools { display: flex; gap: 3px; background: var(--surface-muted); padding: 3px; border-radius: 7px; }
 .tool { height: 28px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 10px; }
@@ -100,6 +98,19 @@ kbd { font-family: inherit; font-size: 9px; border: 1px solid var(--border); pad
 .filmstrip { border-top: 1px solid #fffaf2d9; border-radius: 14px; margin-top: 2px; padding: 16px 26px 20px; flex: 0 0 auto; background: var(--glass-highlight), var(--glass-surface); box-shadow: var(--glass-shadow); }
 .filmstrip-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .filmstrip-heading h2 { font-size: 11px; margin: 0; font-weight: 590; }
+.filmstrip-heading { flex-wrap: wrap; }
+.filmstrip-heading .batch-controls { margin-left: auto; display: flex; align-items: center; }
+.filmstrip-heading .batch-controls select { max-width: 230px; }
+.filmstrip-heading > select { margin-left: 0; }
+.filmstrip.collapsed { padding-top: 8px; padding-bottom: 8px; }
+.filmstrip.collapsed .filmstrip-heading { margin-bottom: 0; }
+.thumbnail-item { position: relative; flex: 0 0 auto; }
+.thumbnail-delete { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; color: var(--danger); background: var(--surface); border: 1px solid var(--border); }
+.thumbnail-delete svg.icon { width: 14px; height: 14px; }
+.thumbnail.image-loading img { opacity: .3; }
+.thumbnail.image-loading::after, .thumbnail.image-error::after { content: attr(data-load-status); position: absolute; top: 23px; left: 5px; right: 5px; font-size: 9px; text-align: center; color: var(--text-muted); background: var(--surface); overflow: hidden; }
+.image-surface.image-loading::after, .image-surface.image-error::after { content: attr(data-load-status); position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 20px; background: var(--surface-muted); color: var(--danger); pointer-events: none; }
+.empty-editor { text-align: center; color: var(--text-muted); padding: 25px; }
 .filmstrip-heading .number { color: var(--text-muted); font-size: 10px; }
 .filmstrip-heading select { margin-left: auto; font-size: 10px; color: var(--text-muted); background: transparent; border: 0; max-width: 120px; }
 .thumbnails { display: flex; gap: 10px; overflow-x: auto; padding: 3px 2px 6px; }

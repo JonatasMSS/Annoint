@@ -15,6 +15,20 @@ const image = (id, name, annotations = [], extra = {}) => ({
 const project = images => ({ version: 1, labels: structuredClone(labels), images });
 const originalBytes = src => Buffer.from(src.slice(src.indexOf(',') + 1), 'base64');
 
+test('fontes externas preservam bytes/caixas e rejeitam excesso antes de alocar buffers', async () => {
+  const src = 'anoint-image://12345678-1234-1234-1234-123456789abc';
+  const value = project([image('external', 'externa.png', [box], { src })]);
+  const blob = new Blob([originalBytes(source)], { type: 'image/png' });
+  const entries = await unzip(await exportDataset(value, 'yolo', { loadSource: async () => blob }));
+  assert.deepEqual(entries.get('images/externa.png'), originalBytes(source));
+  assert.equal(entries.get('labels/externa.txt').toString(), '0 0.125 0.4 0.15 0.4\n');
+  await assert.rejects(exportDataset(value, 'yolo'), /Leitor local/);
+  await assert.rejects(exportDataset(value, 'yolo', { loadSource: async () => { throw new Error('Original movido'); } }), /Original movido/);
+  let allocated = false;
+  await assert.rejects(exportDataset(value, 'yolo', { loadSource: async () => ({ type: 'image/png', size: 0x100000000, arrayBuffer() { allocated = true; throw new Error('Não deve alocar'); } }) }), /limite seguro/);
+  assert.equal(allocated, false);
+});
+
 // Leitura independente: diretório central, cabeçalhos locais, offsets, UTF-8, tamanhos e CRC.
 async function unzip(blob) {
   assert.ok(blob instanceof Blob);

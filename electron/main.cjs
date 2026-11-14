@@ -1,5 +1,10 @@
-const { app, BrowserWindow, dialog, session } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, dialog, session, protocol } = electron;
+const { registerImageScheme, registerNativeFiles } = require('./native-files.cjs');
+const { pathToFileURL } = require('node:url');
 const path = require('node:path');
+let fileBackend;
+let mainWindow;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -9,12 +14,19 @@ function createWindow() {
     minHeight: 760,
     title: 'Anoint',
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
       webviewTag: false,
     },
+  });
+  mainWindow = win;
+  win.on('closed', () => {
+    mainWindow = undefined;
+    fileBackend.close();
+    if (process.platform !== 'darwin') app.quit();
   });
   win.setMenu(null);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -30,15 +42,18 @@ function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  registerImageScheme(protocol);
+
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = mainWindow;
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    fileBackend = await registerNativeFiles(electron, app.getPath('userData'), pathToFileURL(path.join(__dirname, '..', 'index.html')).href);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     session.defaultSession.setDevicePermissionHandler(() => false);
@@ -48,7 +63,7 @@ if (!app.requestSingleInstanceLock()) {
     );
     createWindow();
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (!mainWindow) createWindow();
     });
   }).catch((error) => {
     dialog.showErrorBox('Falha ao iniciar o Anoint', error.message);
