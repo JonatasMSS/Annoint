@@ -1,6 +1,9 @@
 node_modules/
 .maestri/
 test-results/
+test-scenes/images/
+test-scenes/manifest.json
+test-scenes/class-contract.json
 *.log
 .DS_Store
 Thumbs.db
