@@ -48,7 +48,7 @@ app.whenReady().then(async () => {
   const click = selector => page(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const change = (selector, value) => page(`{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}))}`);
   const saved = () => wait("document.querySelector('.save-status')?.textContent==='Todas as alterações salvas'&&document.querySelector('#app').ariaBusy!=='true'");
-  const disk = () => page("import('./src/storage.js').then(m=>m.loadProject())");
+  const disk = () => page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))");
   const bounds = selector => page(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
   const measures = () => page("Object.fromEntries(['x','y','width','height'].map(k=>[k,Number(document.querySelector('#box-'+k).value)]))");
   const mouse = (type, x, y) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y),
@@ -78,7 +78,7 @@ app.whenReady().then(async () => {
   };
   const reload = async () => {
     const loaded = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
-    win.reload(); await loaded; await wait("!!document.querySelector('#batch-select')"); await saved();
+    win.reload(); await loaded; await require('./project-navigation.cjs')(page, wait); await wait("!!document.querySelector('#batch-select')"); await saved();
   };
   const expectedName = image => image.path;
   const select = async image => {
@@ -135,6 +135,7 @@ app.whenReady().then(async () => {
   try {
     operation = 'Importação e classes';
     await win.loadFile(path.join(root, 'index.html'));
+    await require('./project-navigation.cjs')(page, wait);
     await wait("!!document.querySelector('#project-input')&&!!document.querySelector('.thumbnail')");
     await open({ version: 1, labels: [manifest.labels[0]], images: [] });
     for (const label of manifest.labels.slice(1)) {

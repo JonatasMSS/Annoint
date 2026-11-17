@@ -12,7 +12,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1440, height: 960, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false } });
   let lastCode = '';
-  const watchdog = setTimeout(async () => { console.error('Tempo máximo do teste; última operação:', lastCode); try { console.error(await win.webContents.executeJavaScript('document.body.innerText.slice(-1400)')); } catch {} win.destroy(); app.exit(1); }, 180000);
+  const watchdog = setTimeout(async () => { console.error('Tempo máximo do teste; última operação:', lastCode); try { console.error(await win.webContents.executeJavaScript('document.body.innerText.slice(-1400)')); } catch {} win.destroy(); app.exit(1); }, 300000);
   const page = async (code) => {
     lastCode = code.slice(0, 400);
     try { return await win.webContents.executeJavaScript(code, true); }
@@ -49,6 +49,8 @@ app.whenReady().then(async () => {
   };
   try {
     await win.loadFile(path.join(__dirname, '..', 'index.html'));
+    await require('./check-ui-projects.cjs')({ win, page, waitFor, pause, key });
+    await require('./project-navigation.cjs')(page, waitFor);
     await waitFor("document.querySelectorAll('.annotation').length === 4");
     await page("document.querySelector('[data-tool=box]').click()");
     const image = await bounds('.image-surface');
@@ -78,7 +80,7 @@ app.whenReady().then(async () => {
     mouse('mouseUp', box.x + box.width / 2 + 40, box.y + box.height / 2 + 20);
     await pause(50);
     await saved();
-    const stored = await page("import('./src/storage.js').then(m=>m.loadProject())");
+    const stored = await page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))");
     assert.equal(stored.images[0].annotations.at(-1).x, 800);
     assert.equal(stored.images[0].annotations.length, 5);
 
@@ -107,6 +109,7 @@ app.whenReady().then(async () => {
     const reloaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
     win.reload();
     await reloaded;
+    await require('./project-navigation.cjs')(page, waitFor);
     await waitFor("document.querySelectorAll('.thumbnail').length === 2");
     assert.equal(await page("document.querySelector('.progress-track').getAttribute('aria-valuenow')"), '50');
 
@@ -144,7 +147,7 @@ app.whenReady().then(async () => {
     await waitFor("document.querySelectorAll('.thumbnail').length === 5");
     assert.equal(await page("document.querySelector('.image-filename').textContent"), 'lote/seq2/frame2.PNG');
     await saved();
-    const withFolder = await page("import('./src/storage.js').then(m=>m.loadProject())");
+    const withFolder = await page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))");
     assert.deepEqual(withFolder.images.slice(2).map(image => image.name), ['lote/seq2/frame2.PNG', 'lote/seq2/frame10.png', 'lote/seq10/frame10.png']);
     assert.match(await page("document.querySelector('#toast').textContent"), /1 arquivo\(s\).*ignorado/);
     await page("document.querySelector('[data-action=undo]').click()");
@@ -155,8 +158,9 @@ app.whenReady().then(async () => {
     const folderReload = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
     win.reload();
     await folderReload;
+    await require('./project-navigation.cjs')(page, waitFor);
     await waitFor("document.querySelectorAll('.thumbnail').length === 5");
-    assert.deepEqual((await page("import('./src/storage.js').then(m=>m.loadProject())")).images.slice(2).map(image => image.name), withFolder.images.slice(2).map(image => image.name));
+    assert.deepEqual((await page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))")).images.slice(2).map(image => image.name), withFolder.images.slice(2).map(image => image.name));
 
     await page("window.__nativeAnchorClick=HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click=function(){}; window.__makeUrl=URL.createObjectURL; URL.createObjectURL=function(blob){if(['application/json','application/zip'].includes(blob.type))window.__exported=blob;return window.__makeUrl(blob)}; document.querySelector('[data-action=export]').click(); document.querySelector('#export-format').value='yolo'; document.querySelector('#export-format').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('#export-form').requestSubmit()");
     await waitFor("!document.querySelector('#export-dialog').open");

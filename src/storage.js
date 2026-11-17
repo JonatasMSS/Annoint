@@ -27,28 +27,105 @@ function openDatabase() {
   });
 }
 
-async function accessProject(mode, project) {
+function projectId(id) {
+  if (typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error('ID de projeto inválido.');
+  return id;
+}
+
+async function projectTransaction(names, mode, operation) {
   const db = await openDatabase();
   try {
     return await new Promise((resolve, reject) => {
-      const transaction = db.transaction('projects', mode);
-      const store = transaction.objectStore('projects');
-      const request = mode === 'readonly' ? store.get('current') : store.put(project, 'current');
-      transaction.oncomplete = () => resolve(mode === 'readonly' ? request.result : undefined);
-      transaction.onabort = () => reject(new Error('Não foi possível concluir a operação no banco local. Verifique o espaço disponível.', { cause: transaction.error || request.error }));
+      const transaction = db.transaction(names, mode);
+      let result;
+      let failure;
+      const run = (callback) => {
+        try { callback(); }
+        catch (error) { failure = error; transaction.abort(); }
+      };
+      transaction.oncomplete = () => resolve(result);
+      transaction.onabort = () => reject(failure || new Error('Não foi possível salvar no banco local. Verifique o espaço disponível.', { cause: transaction.error }));
+      run(() => operation(transaction, (value) => { result = value; }, run));
     });
-  } finally {
-    db.close();
-  }
+  } finally { db.close(); }
 }
 
-export async function loadProject() {
-  const project = await accessProject('readonly');
-  return project === undefined ? null : validateProject(project);
+export async function initializeProjects(demo) {
+  const fallback = validateProject(demo);
+  await projectTransaction(['projects', 'settings'], 'readwrite', (transaction, result, run) => {
+    const store = transaction.objectStore('projects');
+    const settings = transaction.objectStore('settings');
+    const request = store.getAll();
+    const legacy = store.get('current');
+    const marker = settings.get('legacyProjectId');
+    const view = settings.get('view');
+    view.onsuccess = () => run(() => {
+      if (legacy.result !== undefined && !marker.result) {
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        store.add({ id, name: 'Meu primeiro projeto', createdAt: now, updatedAt: now, project: validateProject(legacy.result) }, id);
+        if (view.result !== undefined) settings.put(view.result, `view:${id}`);
+        settings.put(id, 'legacyProjectId');
+      } else if (!request.result.length) {
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        store.add({ id, name: 'Projeto de exemplo', createdAt: now, updatedAt: now, project: fallback }, id);
+      }
+      // O registro current permanece como cópia de segurança da migração.
+    });
+  });
 }
 
-export async function saveProject(project) {
-  await accessProject('readwrite', validateProject(project));
+export async function listProjects() {
+  return projectTransaction(['projects'], 'readonly', (transaction, result, run) => {
+    const request = transaction.objectStore('projects').openCursor();
+    const records = [];
+    request.onsuccess = () => run(() => {
+      const cursor = request.result;
+      if (!cursor) { result(records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))); return; }
+      if (cursor.key !== 'current') {
+        const record = cursor.value;
+        projectId(record.id);
+        if (record.id !== cursor.key || typeof record.name !== 'string' || !record.name.trim() || typeof record.updatedAt !== 'string') throw new Error('Metadados locais inválidos. Os projetos foram preservados.');
+        validateProject(record.project);
+        records.push({ id: record.id, name: record.name, createdAt: record.createdAt, updatedAt: record.updatedAt,
+          imageCount: record.project.images.length, completedCount: record.project.images.filter((image) => image.reviewed).length });
+      }
+      cursor.continue();
+    });
+  });
+}
+
+export async function loadProject(id) {
+  projectId(id);
+  const record = await accessStore('projects', 'readonly', id);
+  return record === undefined ? null : validateProject(record.project);
+}
+
+export async function saveProject(id, value) {
+  projectId(id);
+  const project = validateProject(value);
+  await projectTransaction(['projects'], 'readwrite', (transaction, result, run) => {
+    const store = transaction.objectStore('projects');
+    const request = store.get(id);
+    request.onsuccess = () => run(() => {
+      if (!request.result) throw new Error('Projeto local não encontrado.');
+      store.put({ ...request.result, project, updatedAt: new Date().toISOString() }, id);
+    });
+  });
+}
+
+export async function createLocalProject(name, value) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 200) throw new Error('Informe um nome com até 200 caracteres.');
+  const { project, assets } = await prepareProject(value);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const record = { id, name: name.trim(), createdAt: now, updatedAt: now, project };
+  await projectTransaction(['projects', 'assets'], 'readwrite', (transaction) => {
+    for (const [src, blob] of assets) transaction.objectStore('assets').add(blob, src);
+    transaction.objectStore('projects').add(record, id);
+  });
+  return record;
 }
 
 async function accessStore(name, mode, key, value) {
@@ -81,7 +158,7 @@ export async function imageBlob(src) {
   return response.blob();
 }
 
-export async function externalizeProject(value, { commit = false } = {}) {
+async function prepareProject(value) {
   const project = validateProject(value);
   const assets = [];
   for (const image of project.images) {
@@ -91,26 +168,23 @@ export async function externalizeProject(value, { commit = false } = {}) {
       assets.push([image.src, blob]);
     }
   }
-  if (!assets.length) return project;
-  const db = await openDatabase();
-  try {
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction(commit ? ['assets', 'projects'] : ['assets'], 'readwrite');
-      for (const [src, blob] of assets) transaction.objectStore('assets').put(blob, src);
-      if (commit) transaction.objectStore('projects').put(project, 'current');
-      transaction.oncomplete = resolve;
-      transaction.onabort = () => reject(new Error('A migração não foi salva; o projeto anterior foi preservado.', { cause: transaction.error }));
-    });
-  } finally { db.close(); }
+  return { project, assets };
+}
+
+export async function externalizeProject(value) {
+  const { project, assets } = await prepareProject(value);
+  if (assets.length) await projectTransaction(['assets'], 'readwrite', (transaction) => {
+    for (const [src, blob] of assets) transaction.objectStore('assets').add(blob, src);
+  });
   return project;
 }
 
-export async function pruneImages(project) {
-  const sources = new Set(project.images.map((image) => image.src));
-  const db = await openDatabase();
-  try {
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction('assets', 'readwrite');
+export async function pruneImages(retainedProjects = []) {
+  const sources = new Set(retainedProjects.flatMap((project) => project.images.map((image) => image.src)));
+  await projectTransaction(['projects', 'assets'], 'readwrite', (transaction, result, run) => {
+    const projects = transaction.objectStore('projects').getAll();
+    projects.onsuccess = () => run(() => {
+      for (const record of projects.result) for (const image of validateProject(record.project || record).images) sources.add(image.src);
       const request = transaction.objectStore('assets').openCursor();
       request.onsuccess = () => {
         const cursor = request.result;
@@ -118,10 +192,8 @@ export async function pruneImages(project) {
         if (!sources.has(cursor.key)) cursor.delete();
         cursor.continue();
       };
-      transaction.oncomplete = resolve;
-      transaction.onabort = () => reject(new Error('Não foi possível liberar cópias locais sem uso.', { cause: transaction.error }));
     });
-  } finally { db.close(); }
+  });
 }
 
 export async function portableProject(value) {
@@ -143,5 +215,5 @@ export async function portableProject(value) {
   return validateProject(project);
 }
 
-export const loadView = () => accessStore('settings', 'readonly', 'view');
-export const saveView = (value) => accessStore('settings', 'readwrite', 'view', value);
+export const loadView = (id) => accessStore('settings', 'readonly', `view:${projectId(id)}`);
+export const saveView = (id, value) => accessStore('settings', 'readwrite', `view:${projectId(id)}`, value);

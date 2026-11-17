@@ -45,7 +45,7 @@ module.exports = async ({ win, page, waitFor, saved, pause }) => {
   await page("document.querySelector('[data-edit-label=tree]').click();document.querySelector('#class-replacement').value='car';document.querySelector('[data-action=delete-class]').click()");
   await saved();
   assert.equal(await page("document.querySelectorAll('.class-item').length"), 1);
-  const project = await page("import('./src/storage.js').then(m=>m.loadProject())");
+  const project = await page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))");
   assert.equal(project.images[0].annotations[0].labelId, 'car');
   await page("document.querySelector('[data-action=undo]').click()");
   await saved();

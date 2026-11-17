@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 module.exports = async ({ win, page, waitFor, saved, pause }) => {
+  const previousId = await page("document.querySelector('.app-shell').dataset.projectId");
+  const previous = await page(`import('./src/storage.js').then(m=>m.loadProject(${JSON.stringify(previousId)}))`);
   const output = path.join(__dirname, '../test-results/management');
   fs.mkdirSync(output, { recursive: true });
   const capture = async name => {
@@ -25,7 +27,7 @@ module.exports = async ({ win, page, waitFor, saved, pause }) => {
     await waitFor("!document.querySelector('#loading-dialog').open && document.querySelectorAll('.thumbnail').length===3");
     await saved();
   };
-  const stored = () => page("import('./src/storage.js').then(m=>m.loadProject())");
+  const stored = () => page("import('./src/storage.js').then(m=>m.loadProject(document.querySelector('.app-shell').dataset.projectId))");
   await open();
   await page("document.querySelector('[data-edit-label=first]').click();document.querySelector('#class-name').value='Renomeada';document.querySelector('#class-color').value='#654321';document.querySelector('#class-form').requestSubmit()");
   await saved();
@@ -118,6 +120,7 @@ module.exports = async ({ win, page, waitFor, saved, pause }) => {
   assert.equal((await stored()).images.length, 0);
   const loaded = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
   win.reload(); await loaded;
+  await require('./project-navigation.cjs')(page, waitFor);
   await waitFor("!!document.querySelector('.empty-editor') && !document.querySelector('#loading-dialog').open");
   assert.equal(await page("document.querySelectorAll('.class-item').length"), 1);
   assert.equal(await page("document.querySelectorAll('.thumbnail').length"), 0);
