@@ -20,13 +20,17 @@ app.whenReady().then(async () => {
   };
   const errors = [];
   win.webContents.on('console-message', (event) => { if (event.level === 'error') errors.push(event.message); });
-  const waitFor = async (code) => {
-    for (let i = 0; i < 600; i++) { if (await page(code)) return; await pause(50); }
+  const waitFor = async (code, timeout = 30000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) { if (await page(code)) return; await pause(50); }
     throw new Error(`Tempo esgotado: ${code}`);
   };
   const mouse = (type, x, y) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, modifiers: type === 'mouseUp' ? [] : ['leftbuttondown'] });
   const key = (name, modifiers = []) => { const keyCode = ({ ArrowRight: 'Right', ArrowLeft: 'Left' })[name] || name; win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); };
-  const bounds = (selector) => page(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
+  const bounds = async (selector) => {
+    await waitFor("document.querySelector('.image-surface > img')?.naturalWidth > 0 && !document.querySelector('.image-surface').matches('.image-loading, .image-error')");
+    return page(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
+  };
   const saved = () => waitFor("document.querySelector('.save-status')?.textContent === 'Todas as alterações salvas' && document.querySelector('#app').ariaBusy!=='true'");
   const exportedZip = async () => {
     const bytes = Buffer.from(await page('window.__exported.arrayBuffer().then(b=>Array.from(new Uint8Array(b)))'));
@@ -170,6 +174,8 @@ app.whenReady().then(async () => {
     await page("document.querySelector('#export-dialog').close()");
     await require('./check-ui-fixtures.cjs')({ win, page, waitFor, mouse, key, bounds, saved, exportedZip, pause, testDirectory });
     await require('./check-ui-batches.cjs')({ win, page, waitFor, mouse, key, bounds, saved, exportedZip, pause, testDirectory });
+    await require('./check-ui-management.cjs')({ win, page, waitFor, saved, pause });
+    await require('./check-ui-problems.cjs')({ win, page, waitFor, saved, pause });
     assert.equal(errors.length, 0, errors.join('\n'));
     console.log('UI OK: anotação, persistência, importação PNG/pastas/subpastas, ordem natural, MIME ausente, desfazer/refazer, reload, JSON, ZIP YOLO, lotes e TrackNet desabilitado.');
     clearTimeout(watchdog);

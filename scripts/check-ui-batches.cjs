@@ -19,7 +19,7 @@ module.exports = async ({ win, page, waitFor, mouse, bounds, saved, exportedZip,
   await waitFor("document.querySelector('.image-surface > img').complete && document.querySelector('.image-surface > img').naturalWidth===8");
   await page(`{window.__liveUrls=new Set();window.__create=URL.createObjectURL;window.__revoke=URL.revokeObjectURL;URL.createObjectURL=function(blob){const url=window.__create(blob);window.__liveUrls.add(url);if(['application/json','application/zip'].includes(blob.type))window.__exported=blob;return url};URL.revokeObjectURL=function(url){window.__liveUrls.delete(url);window.__revoke(url)};const data=Uint8Array.from(atob(${JSON.stringify(source)}),c=>c.charCodeAt(0));const transfer=new DataTransfer();for(let i=1;i<=500;i++){const file=new File([data],String(i).padStart(3,'0')+'.png',{type:'image/png'});Object.defineProperty(file,'webkitRelativePath',{value:'frames/'+file.name});transfer.items.add(file)}const input=document.querySelector('#folder-input');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));}`);
   console.log('Lotes: importando 500 arquivos adicionais');
-  await waitFor("document.querySelector('#batch-select')?.options.length===6");
+  await waitFor("document.querySelector('#batch-select')?.options.length===6", 90000);
   await waitFor("document.querySelectorAll('.thumbnail.image-loading').length===0");
   await saved();
   console.log('Lotes: 501 arquivos carregados');

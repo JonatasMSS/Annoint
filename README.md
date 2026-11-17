@@ -28,12 +28,15 @@ Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e se
 - Importação de pastas pelo botão **Importar pasta**, incluindo subpastas, caminhos preservados e ordem numérica dos nomes (frame2 antes de frame10). Arquivos de outros formatos são ignorados; imagens inválidas são informadas sem descartar as válidas. Novos lotes são adicionados ao projeto e podem ser desfeitos.
 - Criação, seleção, movimento e redimensionamento de caixas, com limites da imagem e zoom.
 - Edição de classe e coordenadas no inspetor, em pixels da imagem original.
-- Criação e edição de nomes e cores das classes.
+- Botão de Lixeira **Excluir caixa selecionada** no cabeçalho do inspetor, além do botão abaixo das medidas e da tecla Delete; a exclusão permite desfazer.
+- Criação e edição de nomes e cores das classes pelo lápis da barra lateral ou pelo botão **Editar classe selecionada**. O nome fica selecionado ao abrir o editor para facilitar a digitação. No mesmo diálogo, remova uma classe vazia ou transfira suas caixas para outra classe antes de removê-la; imagens afetadas voltam a pendentes. A última classe é preservada e a operação permite desfazer.
 - Exclusão de anotações, desfazer e refazer (até 30 alterações na sessão).
 - Lotes de 100 imagens, com conclusão por lote, seleção restaurada ao voltar e miniaturas que podem ser recolhidas. Só o lote ativo fica no cache de URLs; anotações e progresso dos demais permanecem salvos.
 - Exclusão de imagens importadas pelo seletor desktop: confirmação nativa e envio do original para a Lixeira. Cópias antigas sem vínculo com a pasta só podem ser removidas do projeto. Excluir uma imagem limpa o histórico para impedir que desfazer ressuscite arquivos excluídos.
+- Seleção múltipla pelo botão **Selecionar imagens**, com checkboxes, contador, **Selecionar visíveis**, **Limpar** e **Remover N**. A seleção se limita ao lote/filtro atual e é limpa ao trocá-los; **Esc** cancela. A remoção múltipla preserva os arquivos originais, pede confirmação e só libera as cópias locais após salvar. Ela não permite desfazer.
 - Miniaturas, navegação por teclado, filtros e progresso. Imagens sem objetos também podem ser concluídas.
 - Autosalvamento em IndexedDB com status de erro e nova tentativa.
+- Indicadores de carregamento ao restaurar/abrir projetos, importar imagens/pastas, preparar exportações e remover imagens. A importação de arquivos mostra a contagem; operações sem total conhecido usam progresso indeterminado. Miniaturas e imagem principal indicam carregamento e falha, e o autosalvamento tem indicador discreto na barra inferior.
 - Exportação e reabertura do projeto em JSON, com imagens incorporadas e validação antes da troca.
 - Exportação de datasets YOLO em ZIP (TrackNet temporariamente desabilitado na interface), com as imagens originais e as anotações.
 

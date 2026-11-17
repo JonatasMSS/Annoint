@@ -1,4 +1,4 @@
-import { normalizeBox, clampBox, moveBox, validateProject, createProject, MAX_ANNOTATIONS_PER_IMAGE, MAX_PROJECT_ANNOTATIONS, MAX_IMAGES, BATCH_SIZE } from './model.js';
+import { normalizeBox, clampBox, moveBox, validateProject, createProject, MAX_ANNOTATIONS_PER_IMAGE, MAX_PROJECT_ANNOTATIONS, MAX_IMAGES, BATCH_SIZE, updateClass, removeClass, removeImages } from './model.js';
 import { loadProject, saveProject, storeImage, externalizeProject, portableProject, imageBlob, loadView, saveView, pruneImages } from './storage.js';
 import { exportDataset } from './export.js';
 import { batches, BatchCache } from './batches.js';
@@ -67,6 +67,8 @@ let exporting = false;
 let editingLabelId = null;
 let ready = false;
 let sessionBlocked = false;
+let selectingImages = false;
+const selectedImages = new Set();
 const imageSelections = new Map();
 const cache = new BatchCache();
 let batchIndex = 0;
@@ -93,20 +95,29 @@ function loadBatch() {
 function updateSources() {
   for (const element of document.querySelectorAll('img[data-source]')) {
     const item = cache.entries.get(element.dataset.source);
-    if (item?.url && element.getAttribute('src') !== item.url) element.src = item.url;
-    const container = element.closest('.thumbnail, .image-surface');
-    container?.classList.toggle('image-loading', !item);
-    container?.classList.toggle('image-error', Boolean(item?.error));
-    if (container) {
-      container.dataset.loadStatus = item?.error || (!item ? 'Carregando…' : '');
-      container.setAttribute('aria-description', container.dataset.loadStatus);
+    element.onload = updateSources;
+    element.onerror = () => { element.dataset.decodeError = 'Não foi possível carregar esta imagem.'; updateSources(); };
+    if (item?.url && element.getAttribute('src') !== item.url) {
+      delete element.dataset.decodeError;
+      element.src = item.url;
     }
-    if (item?.error) element.title = item.error;
+    const error = item?.error || element.dataset.decodeError;
+    const loading = !error && (!item || !element.complete || !element.naturalWidth);
+    const container = element.closest('.thumbnail, .image-surface');
+    container?.classList.toggle('image-loading', loading);
+    container?.classList.toggle('image-error', Boolean(error));
+    if (container) {
+      container.dataset.loadStatus = error || (loading ? 'Carregando…' : '');
+      container.setAttribute('aria-description', container.dataset.loadStatus);
+      container.setAttribute('aria-busy', String(loading));
+    }
+    if (error) element.title = error;
   }
 }
 
 function selectBatch(index) {
   if (importing || exporting) return;
+  clearImageSelection();
   cancelDrag();
   batchSelections.set(batchIndex, imageId);
   batchIndex = Math.max(0, Math.min(batches(project.images).length - 1, index));
@@ -128,11 +139,35 @@ function notify(message, error = false) {
   toastTimer = setTimeout(() => { toast.hidden = true; }, error ? 6500 : 3500);
 }
 
+function showLoading(message, current = null, total = 1) {
+  $('#loading-message').textContent = message;
+  const progress = $('#loading-progress');
+  progress.max = total || 1;
+  if (current === null) progress.removeAttribute('value');
+  else progress.value = current;
+  $('#app').ariaBusy = 'true';
+  if (!$('#loading-dialog').open) $('#loading-dialog').showModal();
+}
+
+function hideLoading() {
+  $('#loading-dialog').close();
+  $('#app').ariaBusy = 'false';
+}
+
+const paintLoading = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+$('#loading-dialog').addEventListener('cancel', (event) => event.preventDefault());
+
+function clearImageSelection() {
+  selectedImages.clear();
+  selectingImages = false;
+}
+
 function saveStatus() {
   const element = $('.save-status');
   if (!element) return;
   element.textContent = loadingError ? 'Restauração falhou · exporte antes de salvar' : saveError ? 'Falha ao salvar · tentar novamente' : savedRevision < revision ? 'Salvando alterações…' : 'Todas as alterações salvas';
   element.classList.toggle('error', saveError || loadingError);
+  element.classList.toggle('saving', !saveError && !loadingError && savedRevision < revision);
   element.title = loadingError ? 'O projeto salvo não foi substituído. Exporte uma cópia antes de tentar salvar.' : saveError ? 'Clique para tentar salvar de novo. Você também pode exportar uma cópia.' : 'Salvo localmente neste dispositivo';
 }
 
@@ -168,6 +203,7 @@ function remember() {
 }
 
 function updateHistory(direction) {
+  clearImageSelection();
   cancelDrag();
   const from = direction === 'undo' ? history : future;
   const to = direction === 'undo' ? future : history;
@@ -193,11 +229,13 @@ function render() {
   const percent = project.images.length ? Math.round(completed / project.images.length * 100) : 0;
   const box = currentBox();
   const filtered = filteredImages();
+  const visibleIds = new Set(filtered.map((item) => item.id));
+  for (const id of selectedImages) if (!visibleIds.has(id)) selectedImages.delete(id);
   $('#app').innerHTML = `<div class="app-shell">
     <header class="topbar"><div class="brand"><span class="brand-mark">${icon('logo')}</span>anoint<span class="sr-only">Estúdio de anotação</span></div><span class="top-divider"></span><div class="project-crumb">${icon('folder')}<span>Projetos</span>${icon('chevron')}<strong>Meu primeiro projeto</strong><span class="pill">Local</span></div><div class="top-actions"><button class="icon-button" data-action="help" title="Como usar o Anoint" aria-label="Como usar o Anoint">${icon('help')}</button><button class="button" data-action="open-project" title="Abrir projeto JSON">${icon('folder')}<span>Abrir projeto</span></button><button class="button primary" data-action="export">${icon('download')}Exportar projeto</button></div></header>
-    <aside class="sidebar" aria-label="Projeto e classes"><div class="workspace-label"><span class="status-dot"></span>Seu espaço de trabalho</div><div class="project-card"><h2>Meu primeiro projeto</h2><p>Um detalhe de cada vez.</p></div><button class="nav-item active" data-action="show-all">${icon('box')}Anotações<span class="count">${project.images.length}</span></button><button class="nav-item" data-action="import-images">${icon('upload')}Importar imagens</button><hr class="sidebar-separator" /><div class="section-label">Classes<button class="icon-button" data-action="new-class" title="Criar classe" aria-label="Criar classe">${icon('plus')}</button></div><div class="classes">${project.labels.map((label) => `<div class="class-item ${label.id === labelId ? 'selected' : ''}" data-color="${label.color}"><button class="class-select" data-label="${escapeHTML(label.id)}" aria-pressed="${label.id === labelId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(label.name)}</span><span class="class-count">${project.images.reduce((count, item) => count + item.annotations.filter((annotation) => annotation.labelId === label.id).length, 0)}</span></button><button class="icon-button edit-class" data-edit-label="${escapeHTML(label.id)}" aria-label="Editar classe ${escapeHTML(label.name)}" title="Editar classe">${icon('edit')}</button></div>`).join('')}</div><p class="sidebar-tip">Escolha uma classe antes de desenhar.<br />Cada objeto, uma nova anotação.</p><div class="sidebar-bottom"><div class="agent-card"><div class="agent-card-heading">${icon('sparkles')}Um assistente para seu olhar</div><p>No futuro, agentes vão ajudar a encontrar e anotar padrões nas suas imagens.</p><span class="coming-soon">EM BREVE · INTEGRAÇÃO MCP</span></div><button class="sidebar-help" data-action="shortcuts">${icon('keyboard')}Atalhos de teclado</button></div></aside>
-    <main class="workspace"><section class="editor" aria-label="Editor de imagem"><div class="editor-toolbar"><div class="tools" role="group" aria-label="Ferramentas de anotação"><button class="tool ${tool === 'select' ? 'selected' : ''}" data-tool="select" aria-pressed="${tool === 'select'}" title="Selecionar e mover (V)">${icon('cursor')}Selecionar<kbd>V</kbd></button><button class="tool ${tool === 'box' ? 'selected' : ''}" data-tool="box" aria-pressed="${tool === 'box'}" title="Desenhar caixa (B)">${icon('box')}Caixa<kbd>B</kbd></button></div><span class="toolbar-divider"></span><button class="icon-button" data-action="undo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" ${history.length ? '' : 'disabled'}>${icon('undo')}</button><button class="icon-button" data-action="redo" title="Refazer (Ctrl+Y)" aria-label="Refazer" ${future.length ? '' : 'disabled'}>${icon('redo')}</button><div class="zoom-controls"><button class="icon-button" data-action="zoom-out" title="Diminuir zoom" aria-label="Diminuir zoom">${icon('minus')}</button><span class="zoom-readout" aria-live="polite"></span><button class="icon-button" data-action="zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom">${icon('plus')}</button><span class="toolbar-divider"></span><button class="icon-button" data-action="fit" title="Ajustar imagem à área de edição" aria-label="Ajustar imagem à área de edição">${icon('fit')}</button></div></div><div class="stage" id="stage"><div class="image-space"><div class="image-surface"><img ${sourceAttributes(image)} alt="${escapeHTML(image.name)}" draggable="false" /><svg class="annotation-layer ${tool === 'box' ? 'draw-mode' : ''}" viewBox="0 0 ${image.width} ${image.height}" aria-label="Anotações sobre ${escapeHTML(image.name)}"></svg></div></div></div><div class="editor-infobar">${icon('image')}<span class="image-filename" title="${escapeHTML(image.name)}">${escapeHTML(image.name)}</span><span class="dimensions">${image.id ? `${image.width} × ${image.height} px` : ''}</span><span class="image-badge">${image.id === 'demo-image' ? 'Exemplo ilustrado' : 'Arquivo local'}</span></div></section><div class="editor-hint"><span>${icon('info')}${tool === 'box' ? 'Clique e arraste para criar uma caixa.' : 'Selecione uma caixa para ajustar os detalhes.'}</span><span><kbd>B</kbd>Caixa <kbd>V</kbd>Selecionar <kbd>Esc</kbd>Cancelar</span></div><section class="filmstrip ${filmstripHidden ? 'collapsed' : ''}" aria-label="Imagens do projeto"><div class="filmstrip-heading"><h2>Imagens do projeto</h2><span class="number">${project.images.length}</span>${batchSelectorMarkup()}<button class="button subtle" data-action="toggle-filmstrip" aria-expanded="${!filmstripHidden}" aria-controls="project-thumbnails">${filmstripHidden ? 'Mostrar miniaturas' : 'Ocultar miniaturas'}</button><select id="image-filter" aria-label="Filtrar imagens"><option value="all" ${filter === 'all' ? 'selected' : ''}>Todas as imagens</option><option value="pending" ${filter === 'pending' ? 'selected' : ''}>Pendentes</option><option value="done" ${filter === 'done' ? 'selected' : ''}>Concluídas</option></select></div><div class="thumbnails" id="project-thumbnails" ${filmstripHidden ? 'hidden' : ''}>${filtered.map(thumbnailMarkup).join('')}${!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : ''}<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button></div></section></main>
-    <aside class="inspector" aria-label="Anotações e propriedades"><div class="inspector-header"><h2>Anotações</h2><span class="number">${image.annotations.length}</span><button class="icon-button" data-action="draw" title="Criar anotação (B)" aria-label="Criar anotação">${icon('plus')}</button></div><div class="annotation-list">${image.annotations.map((annotation, index) => `<button class="annotation-row ${annotation.id === selectedId ? 'selected' : ''}" data-box="${escapeHTML(annotation.id)}" data-color="${labelFor(annotation.labelId).color}" aria-pressed="${annotation.id === selectedId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(labelFor(annotation.labelId).name)}</span><span class="annotation-id">${String(index + 1).padStart(2, '0')}</span>${icon('box')}</button>`).join('') || '<div class="empty-inspector">Nenhuma anotação ainda.<br />Use <kbd>B</kbd> para criar a primeira.</div>'}</div>${box ? `<section class="inspector-section"><h3>Propriedades da seleção</h3><label class="field-label" for="box-class">Classe</label><select id="box-class">${project.labels.map((label) => `<option value="${escapeHTML(label.id)}" ${box.labelId === label.id ? 'selected' : ''}>${escapeHTML(label.name)}</option>`).join('')}</select><div class="geometry-grid">${[['x', 'Posição X'], ['y', 'Posição Y'], ['width', 'Largura'], ['height', 'Altura']].map(([key, name]) => `<div class="geometry-field"><label class="field-label" for="box-${key}">${name}</label><input type="number" id="box-${key}" data-geometry="${key}" value="${box[key]}" min="0" max="${key === 'x' || key === 'width' ? image.width : image.height}" step="any" required /><span class="unit">px</span></div>`).join('')}</div><button class="delete-annotation" data-action="delete">${icon('trash')}Excluir anotação<kbd>Del</kbd></button></section>` : '<div class="inspector-section empty-inspector">' + icon('cursor') + '<strong>Um lugar para cada detalhe.</strong><br />Selecione uma anotação para<br />ver e editar suas propriedades.</div>'}<section class="progress-section"><div class="progress-heading"><strong>Seu progresso</strong><span>${percent}%</span></div><div class="progress-track" role="progressbar" aria-label="Imagens concluídas" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><p class="progress-caption">${completed} de ${project.images.length} ${project.images.length === 1 ? 'imagem concluída' : 'imagens concluídas'}</p><button class="button complete-button ${image.reviewed ? 'done' : ''}" data-action="complete" aria-pressed="${image.reviewed}">${icon('checkCircle')}${image.reviewed ? 'Imagem concluída' : 'Concluir imagem'}<kbd>C</kbd></button><p class="inspector-footnote">${image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.'}</p></section></aside>
+    <aside class="sidebar" aria-label="Projeto e classes"><div class="workspace-label"><span class="status-dot"></span>Seu espaço de trabalho</div><div class="project-card"><h2>Meu primeiro projeto</h2><p>Um detalhe de cada vez.</p></div><button class="nav-item active" data-action="show-all">${icon('box')}Anotações<span class="count">${project.images.length}</span></button><button class="nav-item" data-action="import-images">${icon('upload')}Importar imagens</button><hr class="sidebar-separator" /><div class="section-label">Classes<button class="icon-button" data-action="new-class" title="Criar classe" aria-label="Criar classe">${icon('plus')}</button></div><div class="classes">${project.labels.map((label) => `<div class="class-item ${label.id === labelId ? 'selected' : ''}" data-color="${label.color}"><button class="class-select" data-label="${escapeHTML(label.id)}" aria-pressed="${label.id === labelId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(label.name)}</span><span class="class-count">${project.images.reduce((count, item) => count + item.annotations.filter((annotation) => annotation.labelId === label.id).length, 0)}</span></button><button class="icon-button edit-class" data-edit-label="${escapeHTML(label.id)}" aria-label="Editar classe ${escapeHTML(label.name)}" title="Editar nome, cor ou remover classe">${icon('edit')}</button></div>`).join('')}</div><button class="button subtle edit-selected-class" data-action="edit-class">${icon('edit')}Editar classe selecionada</button><p class="sidebar-tip">Escolha uma classe para desenhar. Use o botão acima para editar nome, cor ou remover a classe.</p><div class="sidebar-bottom"><div class="agent-card"><div class="agent-card-heading">${icon('sparkles')}Um assistente para seu olhar</div><p>No futuro, agentes vão ajudar a encontrar e anotar padrões nas suas imagens.</p><span class="coming-soon">EM BREVE · INTEGRAÇÃO MCP</span></div><button class="sidebar-help" data-action="shortcuts">${icon('keyboard')}Atalhos de teclado</button></div></aside>
+    <main class="workspace"><section class="editor" aria-label="Editor de imagem"><div class="editor-toolbar"><div class="tools" role="group" aria-label="Ferramentas de anotação"><button class="tool ${tool === 'select' ? 'selected' : ''}" data-tool="select" aria-pressed="${tool === 'select'}" title="Selecionar e mover (V)">${icon('cursor')}Selecionar<kbd>V</kbd></button><button class="tool ${tool === 'box' ? 'selected' : ''}" data-tool="box" aria-pressed="${tool === 'box'}" title="Desenhar caixa (B)">${icon('box')}Caixa<kbd>B</kbd></button></div><span class="toolbar-divider"></span><button class="icon-button" data-action="undo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" ${history.length ? '' : 'disabled'}>${icon('undo')}</button><button class="icon-button" data-action="redo" title="Refazer (Ctrl+Y)" aria-label="Refazer" ${future.length ? '' : 'disabled'}>${icon('redo')}</button><div class="zoom-controls"><button class="icon-button" data-action="zoom-out" title="Diminuir zoom" aria-label="Diminuir zoom">${icon('minus')}</button><span class="zoom-readout" aria-live="polite"></span><button class="icon-button" data-action="zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom">${icon('plus')}</button><span class="toolbar-divider"></span><button class="icon-button" data-action="fit" title="Ajustar imagem à área de edição" aria-label="Ajustar imagem à área de edição">${icon('fit')}</button></div></div><div class="stage" id="stage"><div class="image-space"><div class="image-surface"><img ${sourceAttributes(image)} alt="${escapeHTML(image.name)}" draggable="false" /><svg class="annotation-layer ${tool === 'box' ? 'draw-mode' : ''}" viewBox="0 0 ${image.width} ${image.height}" aria-label="Anotações sobre ${escapeHTML(image.name)}"></svg></div></div></div><div class="editor-infobar">${icon('image')}<span class="image-filename" title="${escapeHTML(image.name)}">${escapeHTML(image.name)}</span><span class="dimensions">${image.id ? `${image.width} × ${image.height} px` : ''}</span><span class="image-badge">${image.id === 'demo-image' ? 'Exemplo ilustrado' : 'Arquivo local'}</span></div></section><div class="editor-hint"><span>${icon('info')}${tool === 'box' ? 'Clique e arraste para criar uma caixa.' : 'Selecione uma caixa para ajustar os detalhes.'}</span><span><kbd>B</kbd>Caixa <kbd>V</kbd>Selecionar <kbd>Esc</kbd>Cancelar</span></div><section class="filmstrip ${filmstripHidden ? 'collapsed' : ''}" aria-label="Imagens do projeto"><div class="filmstrip-heading"><h2>Imagens do projeto</h2><span class="number">${project.images.length}</span>${batchSelectorMarkup()}<button class="button subtle" data-action="select-images" aria-pressed="${selectingImages}" ${project.images.length ? '' : 'disabled'}>${selectingImages ? 'Cancelar seleção' : 'Selecionar imagens'}</button><button class="button subtle" data-action="toggle-filmstrip" aria-expanded="${!filmstripHidden}" aria-controls="project-thumbnails">${filmstripHidden ? 'Mostrar miniaturas' : 'Ocultar miniaturas'}</button><select id="image-filter" aria-label="Filtrar imagens"><option value="all" ${filter === 'all' ? 'selected' : ''}>Todas as imagens</option><option value="pending" ${filter === 'pending' ? 'selected' : ''}>Pendentes</option><option value="done" ${filter === 'done' ? 'selected' : ''}>Concluídas</option></select></div>${imageSelectionMarkup()}<div class="thumbnails" id="project-thumbnails" ${filmstripHidden ? 'hidden' : ''}>${filtered.map(thumbnailMarkup).join('')}${!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : ''}<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button></div></section></main>
+    <aside class="inspector" aria-label="Anotações e propriedades"><div class="inspector-header"><h2>Anotações</h2><span class="number">${image.annotations.length}</span><button class="icon-button" data-action="draw" title="Criar anotação (B)" aria-label="Criar anotação">${icon('plus')}</button><button class="icon-button delete-box" data-action="delete" title="Excluir caixa selecionada (Delete)" aria-label="Excluir caixa selecionada" ${box ? '' : 'disabled'}>${icon('trash')}</button></div><div class="annotation-list">${image.annotations.map((annotation, index) => `<button class="annotation-row ${annotation.id === selectedId ? 'selected' : ''}" data-box="${escapeHTML(annotation.id)}" data-color="${labelFor(annotation.labelId).color}" aria-pressed="${annotation.id === selectedId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(labelFor(annotation.labelId).name)}</span><span class="annotation-id">${String(index + 1).padStart(2, '0')}</span>${icon('box')}</button>`).join('') || '<div class="empty-inspector">Nenhuma anotação ainda.<br />Use <kbd>B</kbd> para criar a primeira.</div>'}</div>${box ? `<section class="inspector-section"><h3>Propriedades da seleção</h3><label class="field-label" for="box-class">Classe</label><select id="box-class">${project.labels.map((label) => `<option value="${escapeHTML(label.id)}" ${box.labelId === label.id ? 'selected' : ''}>${escapeHTML(label.name)}</option>`).join('')}</select><div class="geometry-grid">${[['x', 'Posição X'], ['y', 'Posição Y'], ['width', 'Largura'], ['height', 'Altura']].map(([key, name]) => `<div class="geometry-field"><label class="field-label" for="box-${key}">${name}</label><input type="number" id="box-${key}" data-geometry="${key}" value="${box[key]}" min="0" max="${key === 'x' || key === 'width' ? image.width : image.height}" step="any" required /><span class="unit">px</span></div>`).join('')}</div><button class="delete-annotation" data-action="delete">${icon('trash')}Excluir anotação<kbd>Del</kbd></button></section>` : '<div class="inspector-section empty-inspector">' + icon('cursor') + '<strong>Um lugar para cada detalhe.</strong><br />Selecione uma anotação para<br />ver e editar suas propriedades.</div>'}<section class="progress-section"><div class="progress-heading"><strong>Seu progresso</strong><span>${percent}%</span></div><div class="progress-track" role="progressbar" aria-label="Imagens concluídas" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><p class="progress-caption">${completed} de ${project.images.length} ${project.images.length === 1 ? 'imagem concluída' : 'imagens concluídas'}</p><button class="button complete-button ${image.reviewed ? 'done' : ''}" data-action="complete" aria-pressed="${image.reviewed}">${icon('checkCircle')}${image.reviewed ? 'Imagem concluída' : 'Concluir imagem'}<kbd>C</kbd></button><p class="inspector-footnote">${image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.'}</p></section></aside>
     <footer class="statusbar">${icon('checkCircle')}<button class="save-status" data-action="retry-save"></button><div class="statusbar-right"><span>${icon('lock')}Seus dados ficam neste dispositivo</span><button data-action="shortcuts">${icon('keyboard')}Atalhos</button><span>ANOINТ · PRIMEIRA EDIÇÃO</span></div></footer></div>`;
   $('[data-action="import-images"]').insertAdjacentHTML('afterend', `<button class="nav-item" data-action="import-folder">${icon('folder')}Importar pasta</button>`);
   document.querySelectorAll('[data-color]').forEach((element) => element.style.setProperty('--label-color', element.dataset.color));
@@ -259,11 +297,71 @@ function refreshProgress() {
   $('.thumbnails').innerHTML = filtered.map(thumbnailMarkup).join('') + (!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : '') + `<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button>`;
   $('.thumbnails').scrollLeft = scrollLeft;
   $('.batch-controls').outerHTML = batchSelectorMarkup();
+  refreshImageSelection();
   updateSources();
 }
 
 function thumbnailMarkup(item) {
-  return `<div class="thumbnail-item"><button class="thumbnail ${item.id === imageId ? 'active' : ''}" data-image="${escapeHTML(item.id)}" aria-label="${escapeHTML(item.name)}, ${item.reviewed ? 'concluída' : item.annotations.length ? 'em edição' : 'pendente'}" aria-pressed="${item.id === imageId}"><img ${sourceAttributes(item)} alt="" /><span class="thumbnail-caption"><span class="filename">${escapeHTML(item.name)}</span><span class="thumb-status ${item.reviewed ? 'done' : item.annotations.length ? 'in-progress' : ''}"></span></span></button><button class="thumbnail-delete icon-button" data-action="delete-image" data-id="${escapeHTML(item.id)}" title="Excluir imagem" aria-label="Excluir imagem ${escapeHTML(item.name)}">${icon('trash')}</button></div>`;
+  return `<div class="thumbnail-item ${selectedImages.has(item.id) ? 'marked' : ''}">${selectingImages ? `<input type="checkbox" class="thumbnail-select" data-select-image="${escapeHTML(item.id)}" aria-label="Selecionar ${escapeHTML(item.name)} para remoção" ${selectedImages.has(item.id) ? 'checked' : ''} />` : ''}<button class="thumbnail ${item.id === imageId ? 'active' : ''}" data-image="${escapeHTML(item.id)}" aria-label="${escapeHTML(item.name)}, ${item.reviewed ? 'concluída' : item.annotations.length ? 'em edição' : 'pendente'}" aria-pressed="${item.id === imageId}"><img ${sourceAttributes(item)} alt="" /><span class="thumbnail-caption"><span class="filename">${escapeHTML(item.name)}</span><span class="thumb-status ${item.reviewed ? 'done' : item.annotations.length ? 'in-progress' : ''}"></span></span></button><button class="thumbnail-delete icon-button" data-action="delete-image" data-id="${escapeHTML(item.id)}" title="Excluir imagem" aria-label="Excluir imagem ${escapeHTML(item.name)}">${icon('trash')}</button></div>`;
+}
+
+function imageSelectionMarkup() {
+  return selectingImages ? `<div class="image-selection" role="group" aria-label="Remover várias imagens"><span role="status">${selectedImages.size} selecionada(s)</span><button class="button subtle" data-action="select-visible">Selecionar visíveis</button><button class="button subtle" data-action="clear-images">Limpar</button><button class="button danger" data-action="remove-images" ${selectedImages.size ? '' : 'disabled'}>Remover ${selectedImages.size}</button><span class="selection-hint">Seleção neste lote e filtro. Os arquivos originais serão preservados.</span></div>` : '';
+}
+
+function refreshImageSelection() {
+  const visibleIds = new Set(filteredImages().map((item) => item.id));
+  for (const id of selectedImages) if (!visibleIds.has(id)) selectedImages.delete(id);
+  const toolbar = $('.image-selection');
+  if (toolbar) {
+    toolbar.querySelector('[role="status"]').textContent = `${selectedImages.size} selecionada(s)`;
+    const remove = toolbar.querySelector('[data-action="remove-images"]');
+    remove.textContent = `Remover ${selectedImages.size}`;
+    remove.disabled = !selectedImages.size;
+  }
+  for (const input of document.querySelectorAll('[data-select-image]')) {
+    input.checked = selectedImages.has(input.dataset.selectImage);
+    input.closest('.thumbnail-item').classList.toggle('marked', input.checked);
+  }
+}
+
+async function removeSelectedImages() {
+  if (loadingError) { notify('A restauração falhou. Exporte uma cópia e resolva o salvamento antes de remover imagens.', true); return; }
+  refreshImageSelection();
+  const images = filteredImages().filter((image) => selectedImages.has(image.id));
+  if (!images.length) return;
+  const annotations = images.reduce((count, image) => count + image.annotations.length, 0);
+  if (!confirm(`Remover ${images.length} imagem(ns) e ${annotations} anotação(ões) do projeto? Os arquivos originais serão preservados. Esta remoção não pode ser desfeita.`)) return;
+  cancelDrag();
+  importing = true;
+  showLoading(`Removendo ${images.length} imagem(ns)…`);
+  try {
+    await paintLoading();
+    const next = removeImages(project, images.map((image) => image.id));
+    // Só libera as cópias locais depois de confirmar a gravação da remoção.
+    clearTimeout(saveTimer);
+    await saveChain;
+    await saveProject(next);
+    project = next;
+    if (!project.images.some((image) => image.id === imageId)) imageId = project.images[0]?.id;
+    selectedId = null;
+    history = [];
+    future = [];
+    batchSelections.clear();
+    imageSelections.clear();
+    clearImageSelection();
+    batchIndex = Math.max(0, Math.floor(project.images.findIndex((image) => image.id === imageId) / BATCH_SIZE));
+    revision += 1;
+    savedRevision = revision;
+    saveError = false;
+    render();
+    try { await pruneImages(project); }
+    catch (error) { notify(`Imagens removidas. Não foi possível liberar as cópias locais sem uso. ${error.message}`, true); return; }
+    notify(`${images.length} imagem(ns) removida(s) do projeto. Arquivos originais preservados.`);
+  } catch (error) {
+    notify(`Não foi possível concluir a remoção. ${error.message}`, true);
+    if (savedRevision < revision && !loadingError) persist();
+  } finally { importing = false; hideLoading(); }
 }
 
 function batchSelectorMarkup() {
@@ -272,11 +370,13 @@ function batchSelectorMarkup() {
 }
 
 async function requestImport(folder) {
+  if (importing || exporting) return;
   if (!window.anointFiles) { $(folder ? '#folder-input' : '#image-input').click(); return; }
+  cancelDrag();
   importing = true;
-  $('#app').ariaBusy = 'true';
-  notify('Selecione os arquivos. Verificando as imagens da pasta…');
+  showLoading(folder ? 'Selecionando e verificando imagens da pasta…' : 'Selecionando e verificando imagens…');
   try {
+    await paintLoading();
     const result = await window.anointFiles.pick(folder);
     if (!result.images.length && !result.errors.length) return;
     if (project.images.length + result.images.length > MAX_IMAGES) throw new Error(`O projeto suporta ${MAX_IMAGES} imagens. Selecione uma pasta menor.`);
@@ -284,6 +384,7 @@ async function requestImport(folder) {
     const images = result.images.filter((image) => !seen.has(image.src) && seen.add(image.src));
     const candidate = validateProject({ ...project, images: [...project.images, ...images] });
     if (images.length) {
+      clearImageSelection();
       remember();
       project = candidate;
       imageId = images[0].id;
@@ -296,15 +397,16 @@ async function requestImport(folder) {
     }
     notify(`${images.length} imagem(ns) adicionada(s). ${result.ignored || 0} ignorada(s). ${result.errors.join('; ')}`, Boolean(result.errors.length));
   } catch (error) { notify(`Não foi possível importar. ${error.message}`, true); }
-  finally { importing = false; $('#app').ariaBusy = 'false'; }
+  finally { importing = false; hideLoading(); }
 }
 
 async function deleteImage(id) {
   const image = project.images.find((item) => item.id === id);
   if (!image) return;
   importing = true;
-  $('#app').ariaBusy = 'true';
+  showLoading('Removendo imagem…');
   try {
+    await paintLoading();
     let sources = [image.src];
     const native = image.src.startsWith('anoint-image://');
     if (native) {
@@ -319,6 +421,7 @@ async function deleteImage(id) {
     project.images = project.images.filter((item) => !removed.has(item.src));
     if (!project.images.some((item) => item.id === imageId)) imageId = project.images[Math.min(oldIndex, project.images.length - 1)]?.id;
     selectedId = null;
+    clearImageSelection();
     history = [];
     future = [];
     batchSelections.clear();
@@ -330,7 +433,7 @@ async function deleteImage(id) {
     if (!saveError) await pruneImages(project);
     if (!saveError) notify(native ? 'Arquivo enviado à Lixeira e removido do projeto.' : 'Imagem removida do projeto.');
   } catch (error) { notify(`Não foi possível excluir. ${error.message}`, true); }
-  finally { importing = false; $('#app').ariaBusy = 'false'; }
+  finally { importing = false; hideLoading(); }
 }
 
 const observer = new ResizeObserver(() => requestAnimationFrame(fitImage));
@@ -359,7 +462,7 @@ function point(event) {
 }
 
 function pointerDown(event) {
-  if (event.button !== 0 || importing || !ready || !currentImage()) return;
+  if (event.button !== 0 || importing || exporting || !ready || !currentImage() || $('.image-surface').matches('.image-loading, .image-error')) return;
   event.preventDefault();
   document.activeElement?.blur();
   const svg = $('.annotation-layer');
@@ -496,8 +599,35 @@ function openClassDialog(id = null) {
   $('#class-color').value = label?.color.length === 4 ? `#${[...label.color.slice(1)].map((char) => char + char).join('')}` : label?.color || '#8b5cf6';
   $('#class-error').textContent = '';
   $('#class-form button[type="submit"]').textContent = label ? 'Salvar classe' : 'Criar classe';
+  $('#class-removal').hidden = !label;
+  const affected = project.images.filter((image) => image.annotations.some((box) => box.labelId === id));
+  const count = affected.reduce((total, image) => total + image.annotations.filter((box) => box.labelId === id).length, 0);
+  const last = project.labels.length === 1;
+  $('#class-impact').textContent = last ? 'Mantenha pelo menos uma classe. Crie outra antes de remover esta.' : `${count} anotação(ões) em ${affected.length} imagem(ns). ${count ? 'Escolha a classe que receberá as caixas; as imagens afetadas voltarão a pendentes.' : 'Esta classe não possui anotações.'} Você pode desfazer a remoção com Ctrl+Z.`;
+  $('#class-replacement-field').hidden = !count || last;
+  $('#class-replacement').innerHTML = '<option value="">Escolha uma classe</option>' + project.labels.filter((item) => item.id !== id).map((item) => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join('');
+  $('[data-action="delete-class"]').disabled = last;
   $('#class-dialog').showModal();
   $('#class-name').focus();
+  $('#class-name').select();
+}
+
+function deleteClass() {
+  const label = labelFor(editingLabelId);
+  if (!label) return;
+  try {
+    const next = removeClass(project, label.id, $('#class-replacement').value || undefined);
+    const count = project.images.reduce((total, image) => total + image.annotations.filter((box) => box.labelId === label.id).length, 0);
+    const target = labelFor($('#class-replacement').value);
+    if (!confirm(`Remover a classe “${label.name}”? ${count ? `${count} anotação(ões) será(ão) transferida(s) para “${target.name}”.` : 'Nenhuma anotação será alterada.'}`)) return;
+    remember();
+    project = next;
+    if (labelId === label.id) labelId = target?.id || project.labels[0].id;
+    changed();
+    $('#class-dialog').close();
+    render();
+    notify('Classe removida. Ctrl+Z para desfazer.');
+  } catch (error) { $('#class-error').textContent = error.message; }
 }
 
 async function importImages(files, folder = false) {
@@ -514,65 +644,69 @@ async function importImages(files, folder = false) {
     return collator.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0);
   });
   if (project.images.length >= MAX_IMAGES) { notify('Este projeto suporta até 10000 imagens, em lotes de 100.', true); return; }
+  cancelDrag();
   importing = true;
-  $('#app').ariaBusy = 'true';
+  showLoading(`Importando ${files.length} imagem(ns)…`, 0, files.length);
+  await paintLoading();
   const imported = [];
   const errors = [];
-  const stage = $('#stage');
-  const status = document.createElement('div');
-  status.className = 'import-status';
-  status.setAttribute('role', 'status');
-  stage.append(status);
-  for (const [index, file] of files.entries()) {
-    status.textContent = `Abrindo imagem ${index + 1} de ${files.length}…`;
-    try {
-      if (project.images.length + imported.length >= MAX_IMAGES) throw new Error('limite de 10000 imagens por projeto');
-      const name = file.webkitRelativePath || file.name;
-      if (name.length > 1024 || /^(\/|[a-z]:)/i.test(name) || name.replaceAll('\\', '/').split('/').some((part) => !part || part === '.' || part === '..')) throw new Error('caminho inválido ou acima de 1024 caracteres');
-      if (mime(file) === 'image/') throw new Error('formato não suportado');
-      if (file.size > 15 * 1024 * 1024) throw new Error('limite de 15 MB por imagem');
-      const blob = file.slice(0, file.size, mime(file));
-      const url = URL.createObjectURL(blob);
-      const decoded = new Image();
+  try {
+    for (const [index, file] of files.entries()) {
+      showLoading(`Importando imagem ${index + 1} de ${files.length}…`, index, files.length);
+      if (index % 10 === 0) await paintLoading();
       try {
-        decoded.src = url;
-        await decoded.decode();
-        if (!decoded.naturalWidth || !decoded.naturalHeight || decoded.naturalWidth > 30000 || decoded.naturalHeight > 30000 || decoded.naturalWidth * decoded.naturalHeight > 100_000_000) throw new Error('dimensões não suportadas (máximo de 100 milhões de pixels)');
-        const image = { id: uid(), name, src: 'asset:00000000-0000-0000-0000-000000000000', width: decoded.naturalWidth, height: decoded.naturalHeight, annotations: [], reviewed: false };
-        validateProject({ ...project, images: [...project.images, ...imported, image] });
-        image.src = await storeImage(blob);
-        imported.push(image);
-      } finally { decoded.src = ''; URL.revokeObjectURL(url); }
-    } catch (error) { errors.push(`${file.webkitRelativePath || file.name}: ${error.message}`); }
-  }
-  importing = false; $('#app').ariaBusy = 'false';
-  if (imported.length) {
-    try { validateProject({ ...project, images: [...project.images, ...imported] }); }
-    catch (error) { render(); notify(`As imagens não foram adicionadas. ${error.message}`, true); return; }
-    remember();
-    project.images.push(...imported);
-    imageId = imported[0].id;
-    batchIndex = Math.floor(project.images.findIndex((image) => image.id === imageId) / BATCH_SIZE);
-    selectedId = null;
-    filter = 'all';
-    zoom = 1;
-    changed();
-  }
-  render();
-  if (errors.length) notify(`${imported.length} imagem(ns) aberta(s). ${errors.join('; ')}`, true);
-  else notify(`${imported.length} ${imported.length === 1 ? 'imagem pronta para seu olhar.' : 'imagens prontas para seu olhar.'}${ignored ? ` ${ignored} arquivo(s) de outros formatos ignorado(s).` : ''}`);
+        if (project.images.length + imported.length >= MAX_IMAGES) throw new Error('limite de 10000 imagens por projeto');
+        const name = file.webkitRelativePath || file.name;
+        if (name.length > 1024 || /^(\/|[a-z]:)/i.test(name) || name.replaceAll('\\', '/').split('/').some((part) => !part || part === '.' || part === '..')) throw new Error('caminho inválido ou acima de 1024 caracteres');
+        if (mime(file) === 'image/') throw new Error('formato não suportado');
+        if (file.size > 15 * 1024 * 1024) throw new Error('limite de 15 MB por imagem');
+        const blob = file.slice(0, file.size, mime(file));
+        const url = URL.createObjectURL(blob);
+        const decoded = new Image();
+        try {
+          decoded.src = url;
+          await decoded.decode();
+          if (!decoded.naturalWidth || !decoded.naturalHeight || decoded.naturalWidth > 30000 || decoded.naturalHeight > 30000 || decoded.naturalWidth * decoded.naturalHeight > 100_000_000) throw new Error('dimensões não suportadas (máximo de 100 milhões de pixels)');
+          const image = { id: uid(), name, src: 'asset:00000000-0000-0000-0000-000000000000', width: decoded.naturalWidth, height: decoded.naturalHeight, annotations: [], reviewed: false };
+          validateProject({ ...project, images: [...project.images, ...imported, image] });
+          image.src = await storeImage(blob);
+          imported.push(image);
+        } finally { decoded.src = ''; URL.revokeObjectURL(url); }
+      } catch (error) { errors.push(`${file.webkitRelativePath || file.name}: ${error.message}`); }
+    }
+    if (imported.length) {
+      try { validateProject({ ...project, images: [...project.images, ...imported] }); }
+      catch (error) { render(); notify(`As imagens não foram adicionadas. ${error.message}`, true); return; }
+      remember();
+      clearImageSelection();
+      project.images.push(...imported);
+      imageId = imported[0].id;
+      batchIndex = Math.floor(project.images.findIndex((image) => image.id === imageId) / BATCH_SIZE);
+      selectedId = null;
+      filter = 'all';
+      zoom = 1;
+      changed();
+    }
+    render();
+    if (errors.length) notify(`${imported.length} imagem(ns) aberta(s). ${errors.join('; ')}`, true);
+    else notify(`${imported.length} ${imported.length === 1 ? 'imagem pronta para seu olhar.' : 'imagens prontas para seu olhar.'}${ignored ? ` ${ignored} arquivo(s) de outros formatos ignorado(s).` : ''}`);
+  } catch (error) { notify(`Não foi possível importar. ${error.message}`, true); }
+  finally { importing = false; hideLoading(); }
 }
 
 async function openProject(file) {
   if (!file || importing || exporting) return;
+  cancelDrag();
   importing = true;
-  $('#app').ariaBusy = 'true';
+  showLoading('Abrindo e validando projeto…');
   try {
+    await paintLoading();
     if (file.size > 256 * 1024 * 1024) throw new Error('O arquivo excede o limite de 256 MB.');
     let value = validateProject(JSON.parse(await file.text()));
     if (value.images.some((image) => /^(asset:|anoint-image:)/.test(image.src))) throw new Error('Abra uma cópia JSON portátil com as imagens incorporadas.');
     if (!value.labels.length) throw new Error('O projeto precisa ter pelo menos uma classe.');
-    for (const image of value.images) {
+    for (const [index, image] of value.images.entries()) {
+      showLoading(`Verificando imagem ${index + 1} de ${value.images.length}…`, index, value.images.length);
       const decoded = new Image();
       decoded.src = image.src;
       await decoded.decode();
@@ -586,8 +720,10 @@ async function openProject(file) {
       await persist();
       if (saveError) throw new Error('Salve ou exporte as alterações atuais antes de substituir o projeto.');
     }
+    showLoading('Salvando o projeto aberto…');
     const external = await externalizeProject(value, { commit: true });
     remember();
+    clearImageSelection();
     project = external;
     batchIndex = 0;
     batchSelections.clear();
@@ -602,7 +738,7 @@ async function openProject(file) {
     render();
     notify('Projeto aberto. Você pode continuar de onde parou.');
   } catch (error) { notify(`Não foi possível abrir o projeto. ${error.message}`, true); }
-  finally { importing = false; $('#app').ariaBusy = 'false'; }
+  finally { importing = false; hideLoading(); }
 }
 
 function download(blob, name) {
@@ -633,13 +769,16 @@ function updateExportOptions() {
 }
 
 async function exportProject() {
-  if (exporting || importing) return;
+  if (!ready || exporting || importing) return;
   cancelDrag();
   exporting = true;
   const submit = $('#export-form button[type="submit"]');
   submit.disabled = true;
+  submit.textContent = 'Preparando…';
   $('#export-error').textContent = '';
+  showLoading('Preparando exportação…');
   try {
+    await paintLoading();
     const format = $('#export-format').value;
     const value = validateProject(project);
     let blob;
@@ -654,25 +793,31 @@ async function exportProject() {
     $('#export-dialog').close();
     notify(`Exportação ${format.toUpperCase()} iniciada. Confira a janela de salvamento ou a pasta de downloads.`);
   } catch (error) { $('#export-error').textContent = `Não foi possível exportar. ${error.message}`; }
-  finally { exporting = false; submit.disabled = false; }
+  finally { exporting = false; submit.disabled = false; submit.textContent = 'Exportar'; hideLoading(); }
 }
 
 document.addEventListener('click', (event) => {
+  if (importing || exporting) return;
   const close = event.target.closest('[data-close-dialog]');
   if (close) { close.closest('dialog').close(); return; }
   const element = event.target.closest('[data-action], [data-tool], [data-label], [data-edit-label], [data-box], [data-image]');
   if (!element || !ready) return;
-  if (importing || exporting) { notify('Aguarde a operação terminar.'); return; }
   if (drag) cancelDrag();
   if (element.dataset.tool) { tool = element.dataset.tool; render(); return; }
   if (element.dataset.editLabel) { openClassDialog(element.dataset.editLabel); return; }
-  if (element.dataset.label) { labelId = element.dataset.label; render(); return; }
+  if (element.dataset.label) { labelId = element.dataset.label; selectedId = null; render(); return; }
   if (element.dataset.image) { selectImage(element.dataset.image); return; }
   if (element.dataset.box) { selectedId = element.dataset.box; labelId = currentBox().labelId; tool = 'select'; render(); return; }
   const action = element.dataset.action;
   if (action === 'help') $('#help-dialog').showModal();
   if (action === 'shortcuts') $('#shortcuts-dialog').showModal();
   if (action === 'new-class') openClassDialog();
+  if (action === 'edit-class') openClassDialog(labelId);
+  if (action === 'delete-class') deleteClass();
+  if (action === 'select-images') { selectingImages = !selectingImages; selectedImages.clear(); if (selectingImages) filmstripHidden = false; render(); }
+  if (action === 'select-visible') { for (const image of filteredImages()) selectedImages.add(image.id); refreshImageSelection(); }
+  if (action === 'clear-images') { selectedImages.clear(); refreshImageSelection(); }
+  if (action === 'remove-images') removeSelectedImages();
   if (action === 'import-images') requestImport(false);
   if (action === 'import-folder') requestImport(true);
   if (action === 'open-project') $('#project-input').click();
@@ -684,7 +829,7 @@ document.addEventListener('click', (event) => {
   if (action === 'previous-batch') selectBatch(batchIndex - 1);
   if (action === 'next-batch') selectBatch(batchIndex + 1);
   if (action === 'complete') completeImage();
-  if (action === 'show-all') { filter = 'all'; render(); }
+  if (action === 'show-all') { clearImageSelection(); filter = 'all'; render(); }
   if (action === 'draw') { tool = 'box'; render(); }
   if (action === 'zoom-in' || action === 'zoom-out') { zoom = Math.min(8, Math.max(.25, zoom * (action === 'zoom-in' ? 1.25 : .8))); fitImage(); }
   if (action === 'fit') { zoom = 1; fitImage(); }
@@ -696,14 +841,20 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('change', (event) => {
-  if (!ready) return;
+  if (!ready || importing || exporting) return;
   const target = event.target;
+  if (target.dataset.selectImage) {
+    if (target.checked) selectedImages.add(target.dataset.selectImage);
+    else selectedImages.delete(target.dataset.selectImage);
+    refreshImageSelection();
+    return;
+  }
   if (target.id === 'image-input') { importImages([...target.files]); target.value = ''; return; }
   if (target.id === 'folder-input') { importImages([...target.files], true); target.value = ''; return; }
   if (target.id === 'export-format') { updateExportOptions(); return; }
   if (target.id === 'project-input') { openProject(target.files[0]); target.value = ''; return; }
   if (target.id === 'batch-select') { selectBatch(Number(target.value)); return; }
-  if (target.id === 'image-filter') { filter = target.value; render(); return; }
+  if (target.id === 'image-filter') { clearImageSelection(); filter = target.value; render(); return; }
   if (target.id === 'box-class' && currentBox()) {
     remember();
     currentBox().labelId = target.value;
@@ -732,20 +883,25 @@ $('#export-form').addEventListener('submit', (event) => {
 
 $('#class-form').addEventListener('submit', (event) => {
   event.preventDefault();
+  if (!ready || importing || exporting) return;
   const name = $('#class-name').value.trim();
   const color = $('#class-color').value;
   if (!name) { $('#class-error').textContent = 'Dê um nome à classe.'; return; }
   if (project.labels.some((label) => label.id !== editingLabelId && label.name.toLocaleLowerCase() === name.toLocaleLowerCase())) { $('#class-error').textContent = 'Já existe uma classe com esse nome.'; return; }
   if (!editingLabelId && project.labels.length >= 100) { $('#class-error').textContent = 'O projeto suporta até 100 classes.'; return; }
-  remember();
-  if (editingLabelId) Object.assign(labelFor(editingLabelId), { name, color });
-  else { labelId = uid(); project.labels.push({ id: labelId, name, color }); }
+  try {
+    const next = editingLabelId ? updateClass(project, editingLabelId, { name, color }) : null;
+    remember();
+    if (next) project = next;
+    else { labelId = uid(); project.labels.push({ id: labelId, name, color }); }
+  } catch (error) { $('#class-error').textContent = error.message; return; }
   changed();
   $('#class-dialog').close();
   render();
 });
 
 document.addEventListener('keydown', (event) => {
+  if (ready && !importing && !exporting && selectingImages && event.key === 'Escape' && !document.querySelector('dialog[open]')) { clearImageSelection(); render(); return; }
   if (!ready || importing || exporting || event.target.closest('input, select, textarea, [contenteditable="true"]') || document.querySelector('dialog[open]')) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && key === 'z') { event.preventDefault(); updateHistory(event.shiftKey ? 'redo' : 'undo'); return; }
@@ -775,6 +931,8 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 async function start() {
+  showLoading('Restaurando projeto e imagens…');
+  await paintLoading();
   try {
     const saved = await loadProject();
     if (saved) {
@@ -811,9 +969,11 @@ async function start() {
   } catch (error) { loadingError = true; notify(`Não foi possível recuperar a navegação. ${error.message}`, true); }
   ready = true;
   render();
+  hideLoading();
 }
 
 function blockSession(message) {
+  hideLoading();
   sessionBlocked = true;
   $('#app').innerHTML = `<main class="empty-inspector"><h1>Seu projeto está protegido.</h1><p>${escapeHTML(message)}</p></main>`;
 }

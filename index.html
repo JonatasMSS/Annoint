@@ -12,6 +12,11 @@
   <body>
     <div id="app"></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="loading-dialog" aria-labelledby="loading-message" aria-describedby="loading-hint">
+      <div class="loading-heading"><span class="spinner" aria-hidden="true"></span><strong id="loading-message" role="status" aria-live="polite">Carregando projeto…</strong></div>
+      <progress id="loading-progress" aria-label="Progresso da operação"></progress>
+      <p id="loading-hint" class="muted">Aguarde a operação terminar.</p>
+    </dialog>
     <dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
       <div class="dialog-heading"><h2 id="shortcuts-title">Um pouco mais rápido.</h2><button class="icon-button" data-close-dialog aria-label="Fechar atalhos">×</button></div>
       <p class="muted">Seus atalhos no estúdio.</p>
@@ -19,7 +24,7 @@
       <p class="dialog-footnote">No Mac, use ⌘ no lugar de Ctrl.</p>
     </dialog>
     <dialog id="class-dialog" aria-labelledby="class-title">
-      <form id="class-form"><div class="dialog-heading"><h2 id="class-title">Nova classe</h2><button type="button" class="icon-button" data-close-dialog aria-label="Fechar">×</button></div><p class="muted">Dê um nome ao que você quer encontrar.</p><label class="field-label" for="class-name">Nome da classe</label><input id="class-name" name="name" maxlength="200" required placeholder="Ex.: Bicicleta" autocomplete="off" /><label class="field-label" for="class-color">Cor da anotação</label><input id="class-color" name="color" type="color" value="#8b5cf6" /><p id="class-error" class="field-error" role="alert"></p><button type="submit" class="button primary">Criar classe</button></form>
+      <form id="class-form"><div class="dialog-heading"><h2 id="class-title">Nova classe</h2><button type="button" class="icon-button" data-close-dialog aria-label="Fechar">×</button></div><p class="muted">Dê um nome ao que você quer encontrar.</p><label class="field-label" for="class-name">Nome da classe</label><input id="class-name" name="name" maxlength="200" required placeholder="Ex.: Bicicleta" autocomplete="off" /><label class="field-label" for="class-color">Cor da anotação</label><input id="class-color" name="color" type="color" value="#8b5cf6" /><p id="class-error" class="field-error" role="alert"></p><button type="submit" class="button primary">Criar classe</button><section id="class-removal" hidden><hr /><p id="class-impact" class="muted"></p><div id="class-replacement-field"><label class="field-label" for="class-replacement">Transferir anotações para</label><select id="class-replacement"></select></div><button type="button" class="button danger" data-action="delete-class">Remover classe</button></section></form>
     </dialog>
     <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">Seu olhar. Seus dados.</h2><button class="icon-button" data-close-dialog aria-label="Fechar ajuda">×</button></div><p>O Anoint é seu espaço para anotar imagens com precisão. Comece pela imagem de exemplo ou importe as suas.</p><ol class="help-steps"><li>Escolha uma classe na barra lateral.</li><li>Ative <strong>Caixa</strong> e arraste sobre a imagem.</li><li>Selecione uma caixa para ajustar a posição, o tamanho ou a classe.</li><li>Marque a imagem como concluída, mesmo quando não houver objetos.</li><li>Exporte o projeto em JSON para guardar uma cópia com as imagens.</li></ol><p>As alterações são salvas neste dispositivo. Seus arquivos não são enviados a um servidor.</p><div class="future-callout">Nesta entrega, a anotação é manual. Agentes e integração MCP chegam em uma próxima etapa.</div></dialog>
     <dialog id="export-dialog" aria-labelledby="export-title">

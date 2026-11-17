@@ -104,8 +104,16 @@ app.whenReady().then(async () => {
     assert.equal(recovered.images.length, 500);
     assert.equal(recovered.images.some(image => image.src === source), false);
     assert.deepEqual(await page(`window.anointFiles.available([${JSON.stringify(source)}])`), [source]);
+    // Remoção múltipla é só do projeto, mesmo para referências nativas.
+    refuseTrash = true;
+    await page("window.confirm=()=>true;document.querySelector('#batch-select').value='0';document.querySelector('#batch-select').dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-action=select-images]').click();document.querySelectorAll('[data-select-image]')[0].click();document.querySelectorAll('[data-select-image]')[1].click();document.querySelector('[data-action=remove-images]').click()");
+    await wait("document.querySelector('#app').ariaBusy!=='true'");
+    await saved();
+    assert.equal((await page("import('./src/storage.js').then(m=>m.loadProject())")).images.length, 498);
+    await fs.access(path.join(directory, 'frame0.png'));
+    await fs.access(path.join(directory, 'frame1.png'));
     assert.equal(errors.length, 0, errors.join('\n'));
-    console.log('NATIVE UI OK: preload real, pasta501, protocolo/bytes, anotação, reimportação, cancelamento/falha, Lixeira real e restauração por tombstone');
+    console.log('NATIVE UI OK: preload real, pasta501, protocolo/bytes, anotação, reimportação, cancelamento/falha, Lixeira real, restauração por tombstone e remoção múltipla preservando originais');
     clearTimeout(watchdog); backend.close(); win.destroy(); app.exit(0);
   } catch (error) {
     console.error(error); console.error('Perfil isolado: ' + root);
