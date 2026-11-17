@@ -114,20 +114,21 @@ test('limita tamanho de fontes e quantidade de entidades antes de copiar', () =>
 
 test('IndexedDB só resolve após commit, valida leitura/escrita e propaga abortos', async () => {
   const previous = globalThis.indexedDB;
-  let stored;
+  const id = '00000000-0000-4000-8000-000000000001';
+  let stored = { id, name: 'Projeto', createdAt: '2026-01-01', updatedAt: '2026-01-01', project: project() };
   let current;
   const handles = [];
   const factory = { open() {
     const db = {
       close() { this.closed = true; },
       transaction(name, mode) {
-        assert.equal(name, 'projects');
+        assert.deepEqual(Array.isArray(name) ? name : [name], ['projects']);
         const request = { result: undefined, error: null };
         const tx = { error: null, objectStore(storeName) {
           assert.equal(storeName, 'projects');
           return {
-            get(key) { assert.equal(key, 'current'); request.result = stored; return request; },
-            put(value, key) { assert.equal(key, 'current'); tx.pending = value; return request; },
+            get(key) { assert.equal(key, id); request.result = structuredClone(stored); queueMicrotask(() => request.onsuccess?.()); return request; },
+            put(value, key) { assert.equal(key, id); tx.pending = value; return request; },
           };
         } };
         current = { db, tx, request, mode };
@@ -147,7 +148,7 @@ test('IndexedDB só resolve após commit, valida leitura/escrita e propaga abort
   try {
     globalThis.indexedDB = factory;
     let resolved = false;
-    const saving = saveProject(project()).then(() => { resolved = true; });
+    const saving = saveProject(id, project()).then(() => { resolved = true; });
     let operation = await waitForTransaction();
     assert.equal(operation.mode, 'readwrite');
     assert.equal(resolved, false);
@@ -157,36 +158,38 @@ test('IndexedDB só resolve após commit, valida leitura/escrita e propaga abort
     assert.equal(resolved, true);
     assert.equal(operation.db.closed, true);
 
-    const loading = loadProject();
+    const loading = loadProject(id);
     operation = await waitForTransaction();
     operation.tx.oncomplete();
     assert.deepEqual(await loading, project());
 
-    const failed = saveProject(project());
+    const failed = saveProject(id, project());
     const rejected = assert.rejects(failed, /banco local/);
     operation = await waitForTransaction();
     operation.tx.error = new Error('QuotaExceededError');
     operation.tx.onabort();
     await rejected;
     assert.equal(operation.db.closed, true);
-    assert.deepEqual(stored, project());
+    assert.deepEqual(stored.project, project());
+    assert.equal(stored.name, 'Projeto');
 
     stored = undefined;
-    const empty = loadProject();
+    const empty = loadProject(id);
     operation = await waitForTransaction(); operation.tx.oncomplete();
     assert.equal(await empty, null);
 
-    stored = { version: 999 };
-    const corrupt = loadProject();
+    stored = { project: { version: 999 } };
+    const corrupt = loadProject(id);
     const corruptRejected = assert.rejects(corrupt, /Versão/);
     operation = await waitForTransaction(); operation.tx.oncomplete();
     await corruptRejected;
 
     const openedBefore = handles.length;
-    await assert.rejects(saveProject({ version: 999 }), /Versão/);
+    await assert.rejects(saveProject(id, { version: 999 }), /Versão/);
+    await assert.rejects(loadProject('current'), /ID de projeto/);
     assert.equal(handles.length, openedBefore);
     globalThis.indexedDB = undefined;
-    await assert.rejects(loadProject(), /IndexedDB indisponível/);
+    await assert.rejects(loadProject(id), /IndexedDB indisponível/);
   } finally {
     if (previous === undefined) delete globalThis.indexedDB;
     else globalThis.indexedDB = previous;

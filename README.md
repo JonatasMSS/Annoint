@@ -23,6 +23,8 @@ Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e se
 
 ## O que funciona
 
+- Tela inicial **Projetos** com cartões, nomes, quantidade de imagens e progresso de revisão. Crie um projeto pelo nome, abra um cartão para continuar e use **Projetos** no editor para voltar à biblioteca.
+- Vários projetos locais independentes, com navegação e histórico de desfazer separados. Abrir JSON adiciona uma cópia à biblioteca; o projeto anterior continua salvo. A troca aguarda o salvamento e permanece no editor se houver falha.
 - Exemplo ilustrado local para experimentar a anotação.
 - Importação de PNG, JPEG, WebP, AVIF, GIF e BMP, por seletor ou arrastar arquivos.
 - Importação de pastas pelo botão **Importar pasta**, incluindo subpastas, caminhos preservados e ordem numérica dos nomes (frame2 antes de frame10). Arquivos de outros formatos são ignorados; imagens inválidas são informadas sem descartar as válidas. Novos lotes são adicionados ao projeto e podem ser desfeitos.
@@ -32,6 +34,7 @@ Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e se
 - Exclusão de anotações, desfazer e refazer (até 30 alterações na sessão).
 - Lotes de 100 imagens, com conclusão por lote, seleção restaurada ao voltar e miniaturas que podem ser recolhidas. Só o lote ativo fica no cache de URLs; anotações e progresso dos demais permanecem salvos.
 - Exclusão de imagens importadas pelo seletor desktop: confirmação nativa e envio do original para a Lixeira. Cópias antigas sem vínculo com a pasta só podem ser removidas do projeto. Excluir uma imagem limpa o histórico para impedir que desfazer ressuscite arquivos excluídos.
+- Imagens nativas com a mesma referência em outros projetos são removidas apenas do projeto atual. Arquivos indisponíveis mantêm suas anotações até a remoção explícita da referência; abrir o projeto não descarta esses dados.
 - Miniaturas, navegação por teclado, filtros e progresso. Imagens sem objetos também podem ser concluídas.
 - Autosalvamento em IndexedDB com status de erro e nova tentativa.
 - Exportação e reabertura do projeto em JSON, com imagens incorporadas e validação antes da troca.
@@ -41,7 +44,7 @@ Atalhos: **B** caixa, **V** selecionar, **←/→** navegar, **C** concluir, **D
 
 ## Dados e limites
 
-Há um projeto local ativo. Abrir outro pede confirmação antes de substituir o atual. Exporte JSON para guardar outras cópias. Os arquivos permanecem no dispositivo; nenhuma imagem é enviada a um servidor. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
+Os projetos ficam na biblioteca local deste dispositivo. O projeto existente nas versões anteriores é migrado automaticamente, com imagens, classes, anotações e progresso preservados. Exporte JSON para guardar uma cópia fora do aplicativo. Os arquivos permanecem no dispositivo; nenhuma imagem é enviada a um servidor. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
 
 O Electron mantém uma única instância. No navegador, uma trava por origem impede que outra aba edite o mesmo banco ao mesmo tempo. Use um navegador com Web Locks; a segunda aba informa que o projeto já está aberto e não grava dados.
 
@@ -84,6 +87,8 @@ Os testes Node cobrem coordenadas, bordas fracionárias, dados inválidos, ida e
 O teste de interface importa 501 arquivos, troca lotes, confere liberação do cache, progresso, reabertura, exportação de todos os lotes, exclusão até vazio e também anota essas imagens por eventos reais de ponteiro, verifica zoom/rolagem, oito alças, classes, atalhos, limites, trava entre janelas e um download real. Gera capturas e resultados em `test-results/`, que fica fora do Git. Veja [o relatório de QA](docs/QA-interface.md) para cobertura, correções e limites da verificação.
 
 `test:native` verifica o preload e o protocolo reais, importa uma pasta com 501 arquivos e exercita a Lixeira do Windows somente com cópias temporárias. Seletores e confirmações recebem respostas controladas no teste. Veja [a validação de lotes e exclusão](docs/QA-lotes.md).
+
+A verificação de interface também cobre a biblioteca de projetos, migração do banco antigo sem duplicação, criação/importação sem substituir projetos, preservação de imagens entre projetos, troca antes do autosalvamento, falhas de gravação e layout estreito. Capturas da biblioteca ficam em `test-results/projects-home.png` e `test-results/projects-mobile.png`. O teste nativo confere referências compartilhadas e remoção explícita de arquivos indisponíveis.
 
 ## Estrutura
 

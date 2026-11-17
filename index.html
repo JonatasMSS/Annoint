@@ -12,6 +12,9 @@
   <body>
     <div id="app"></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="project-dialog" aria-labelledby="project-title">
+      <form id="project-form"><div class="dialog-heading"><h2 id="project-title">Novo projeto</h2><button type="button" class="icon-button" data-close-dialog aria-label="Fechar">×</button></div><p class="muted">Um espaço para suas imagens e anotações.</p><label class="field-label" for="project-name">Nome do projeto</label><input id="project-name" name="name" maxlength="200" required placeholder="Ex.: Trânsito do bairro" autocomplete="off" aria-describedby="project-error" /><p id="project-error" class="field-error" role="alert"></p><button type="submit" class="button primary">Criar projeto</button></form>
+    </dialog>
     <dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
       <div class="dialog-heading"><h2 id="shortcuts-title">Um pouco mais rápido.</h2><button class="icon-button" data-close-dialog aria-label="Fechar atalhos">×</button></div>
       <p class="muted">Seus atalhos no estúdio.</p>

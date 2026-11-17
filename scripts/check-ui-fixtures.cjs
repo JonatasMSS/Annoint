@@ -27,7 +27,7 @@ module.exports = async function checkFixtures({ win, page, waitFor, mouse, key, 
     await waitFor("document.querySelector('#toast').textContent.includes('Projeto aberto')");
   };
   const upload = (id, list) => page(`{ const transfer=new DataTransfer(); for(const [index,item] of ${JSON.stringify(list)}.entries()){const bytes=Uint8Array.from(atob(item.bytes),c=>c.charCodeAt(0)); const file=new File([bytes],item.name.split('/').at(-1),{type:index%2?item.type:''}); Object.defineProperty(file,'webkitRelativePath',{value:item.name}); transfer.items.add(file);} const input=document.querySelector(${JSON.stringify(id)}); input.files=transfer.files; input.dispatchEvent(new Event('change',{bubbles:true})); }`);
-  const disk = () => page("import('./src/storage.js').then(async m=>m.portableProject(await m.loadProject()))");
+  const disk = () => page("import('./src/storage.js').then(async m=>m.portableProject(await m.loadProject(document.querySelector('.app-shell').dataset.projectId)))");
   const geometry = () => page("Object.fromEntries(['x','y','width','height'].map(k=>[k,Number(document.querySelector('#box-'+k).value)]))");
   const exactGeometry = (box) => page(`{ const box=${JSON.stringify(box)}; for(const key of ['width','height','x','y']){const input=document.querySelector('#box-'+key);input.value=box[key];input.dispatchEvent(new Event('change',{bubbles:true}));} }`);
   const select = async (id) => { await page(`document.querySelector('[data-image="${id}"]').click()`); await pause(100); };
