@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeBox, clampBox, moveBox, validateProject, createProject } from '../src/model.js';
+import { normalizeBox, clampBox, moveBox, validateProject, createProject, updateClass, removeClass, removeImages } from '../src/model.js';
 import { loadProject, saveProject } from '../src/storage.js';
 
 const source = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZAAAAABJRU5ErkJggg==';
@@ -8,6 +8,107 @@ const label = { id: 'person', name: 'Pessoa', color: '#f08' };
 const box = { id: 'box-1', labelId: 'person', x: 10, y: 20, width: 30, height: 40 };
 const image = { id: 'image-1', name: 'foto.png', src: source, width: 100, height: 100, annotations: [box], reviewed: false };
 const project = () => createProject([image], [label]);
+
+function editingProject() {
+  return createProject([
+    { ...image, reviewed: true, annotations: [box, { ...box, id: 'car-1', labelId: 'car' }] },
+    { ...image, id: 'image-2', reviewed: true, annotations: [{ ...box, id: 'box-2' }] },
+    { ...image, id: 'image-3', reviewed: true, annotations: [{ ...box, id: 'car-3', labelId: 'car' }] },
+    { ...image, id: 'image-4', reviewed: false, annotations: [] },
+  ], [label, { id: 'car', name: 'Carro', color: '#123456' }]);
+}
+
+test('edita nome e/ou cor preservando IDs, caixas e original', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  for (const changes of [{ name: 'Pedestre' }, { color: '#AbC' }, { name: 'Pessoa nova', color: '#ABCDEF' }]) {
+    const result = updateClass(original, 'person', changes);
+    assert.deepEqual(result, { ...original, labels: [{ ...label, ...changes }, original.labels[1]] });
+    assert.deepEqual(validateProject(result), result);
+    result.images[0].annotations[0].x = 0;
+  }
+  assert.deepEqual(original, snapshot);
+});
+
+test('rejeita alterações inválidas sem mutação parcial', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  for (const changes of [null, undefined, [], 'nome', {}, { id: 'novo' }, { name: 'Ok', extra: true },
+    { name: '' }, { name: ' ' }, { name: 1 }, { name: 'x'.repeat(201) },
+    { color: null }, { color: 'red' }, { color: '#12' }, { color: '#12345678' }, { name: 'Ok', color: '#xyz' }]) {
+    assert.throws(() => updateClass(original, 'person', changes), Error);
+  }
+  for (const id of [null, undefined, 1, '', ' ', 'x'.repeat(201), 'missing']) {
+    assert.throws(() => updateClass(original, id, { name: 'Ok' }), Error);
+    assert.throws(() => removeClass(original, id, 'car'), Error);
+  }
+  assert.deepEqual(original, snapshot);
+});
+
+test('remove classe transferindo caixas e desmarcando só imagens afetadas', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  const result = removeClass(original, 'person', 'car');
+  assert.deepEqual(result.labels, [original.labels[1]]);
+  assert.deepEqual(result.images, original.images.map((image, index) => index < 2
+    ? { ...image, reviewed: false, annotations: image.annotations.map(box => ({ ...box, labelId: 'car' })) }
+    : image));
+  assert.deepEqual(validateProject(result), result);
+  result.images[0].annotations[0].x = 0;
+  assert.deepEqual(original, snapshot);
+});
+
+test('classe usada exige destino distinto válido e última classe nunca é removida', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  for (const replacementId of [undefined, null, 1, '', ' ', 'x'.repeat(201), 'missing', 'person']) {
+    assert.throws(() => removeClass(original, 'person', replacementId), Error);
+  }
+  assert.throws(() => removeClass(project(), 'person', 'car'), /última classe/);
+  assert.throws(() => removeClass(createProject([], [label]), 'person'), /última classe/);
+  assert.deepEqual(original, snapshot);
+});
+
+test('classe sem caixas dispensa destino e preserva revisão das imagens', () => {
+  const original = editingProject();
+  const unused = createProject(original.images, [...original.labels, { id: 'unused', name: 'Vazia', color: '#000' }]);
+  const snapshot = structuredClone(unused);
+  assert.deepEqual(removeClass(unused, 'unused'), original);
+  assert.deepEqual(removeClass(unused, 'unused', 'car'), original);
+  assert.throws(() => removeClass(unused, 'unused', 'missing'), /destino/);
+  assert.deepEqual(unused, snapshot);
+});
+
+test('remove múltiplas imagens com caixas, aceitando duplicatas e lista vazia', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  const result = removeImages(original, ['image-3', 'image-1', 'image-1']);
+  assert.deepEqual(result, { ...original, images: [original.images[1], original.images[3]] });
+  assert.deepEqual(validateProject(result), result);
+  assert.deepEqual(removeImages(original, []), original);
+  assert.deepEqual(removeImages(original, original.images.map(image => image.id)), { ...original, images: [] });
+  result.images[0].annotations[0].x = 0;
+  result.labels[0].name = 'Outra';
+  assert.deepEqual(original, snapshot);
+});
+
+test('rejeita lista inválida ou imagem inexistente sem remoção parcial', () => {
+  const original = editingProject();
+  const snapshot = structuredClone(original);
+  for (const ids of [null, undefined, 'image-1', {}, [null], [1], [''], [' '], ['x'.repeat(201)],
+    ['image-1', 'missing'], ['image-1', null], new Array(1)]) {
+    assert.throws(() => removeImages(original, ids), Error);
+  }
+  assert.deepEqual(original, snapshot);
+});
+
+test('operações validam projetos antes de editar ou remover', () => {
+  for (const original of [null, { ...editingProject(), version: 2 }, { ...editingProject(), labels: [label] }]) {
+    assert.throws(() => updateClass(original, 'person', { name: 'Outra' }), Error);
+    assert.throws(() => removeClass(original, 'person', 'car'), Error);
+    assert.throws(() => removeImages(original, ['image-1']), Error);
+  }
+});
 
 test('normaliza arrasto nas quatro direções em pixels naturais', () => {
   for (const [start, end] of [

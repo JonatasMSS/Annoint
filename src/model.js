@@ -118,3 +118,52 @@ export function validateProject(value) {
 export function createProject(images, labels) {
   return validateProject({ version: 1, labels, images });
 }
+
+export function updateClass(project, id, changes) {
+  check(text(id, 200), 'ID de classe inválido.');
+  check(changes && typeof changes === 'object' && !Array.isArray(changes), 'Alterações de classe inválidas.');
+  const keys = Object.keys(changes);
+  check(keys.length > 0 && keys.every(key => key === 'name' || key === 'color'), 'Altere somente nome e/ou cor da classe.');
+  const result = validateProject(project);
+  const label = result.labels.find(label => label.id === id);
+  check(label, 'Classe não existe.');
+  if (Object.hasOwn(changes, 'name')) {
+    check(text(changes.name, 200), 'Nome de classe inválido.');
+    label.name = changes.name;
+  }
+  if (Object.hasOwn(changes, 'color')) {
+    check(typeof changes.color === 'string' && /^#(?:[a-f\d]{3}|[a-f\d]{6})$/i.test(changes.color), 'Cor de classe inválida; use hexadecimal #RGB ou #RRGGBB.');
+    label.color = changes.color;
+  }
+  return result;
+}
+
+export function removeClass(project, id, replacementId) {
+  check(text(id, 200), 'ID de classe inválido.');
+  const result = validateProject(project);
+  check(result.labels.some(label => label.id === id), 'Classe não existe.');
+  check(result.labels.length > 1, 'Não é possível remover a última classe.');
+  const replacement = result.labels.find(label => label.id === replacementId && label.id !== id);
+  check(replacementId === undefined || replacement, 'Classe de destino inválida.');
+  for (const image of result.images) {
+    for (const box of image.annotations) {
+      if (box.labelId !== id) continue;
+      check(replacement, 'Classe usada exige outra classe de destino válida.');
+      box.labelId = replacement.id;
+      image.reviewed = false;
+    }
+  }
+  result.labels = result.labels.filter(label => label.id !== id);
+  return result;
+}
+
+export function removeImages(project, ids) {
+  check(Array.isArray(ids), 'Lista de IDs de imagens inválida.');
+  for (const id of ids) check(text(id, 200), 'ID de imagem inválido.');
+  const result = validateProject(project);
+  const imageIds = new Set(result.images.map(image => image.id));
+  check(ids.every(id => imageIds.has(id)), 'Imagem não existe.');
+  const removedIds = new Set(ids);
+  result.images = result.images.filter(image => !removedIds.has(image.id));
+  return result;
+}
