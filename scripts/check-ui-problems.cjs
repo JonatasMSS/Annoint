@@ -70,6 +70,7 @@ module.exports = async ({ win, page, waitFor, saved, pause }) => {
   assert.equal(await page("document.querySelector('.delete-box').disabled"), true);
   await page("document.querySelector('[data-action=undo]').click()");
   assert.equal(await page("document.querySelectorAll('.annotation').length"), 1);
+  assert.equal(await page("document.querySelector('.app-version').textContent"), 'ANOINT · v0.2.0');
   win.setContentSize(...size);
   console.log('Problemas OK: cliques reais em Árvore/Carro, digitação por teclado, salvar/remover classe e excluir caixa pelo botão com desfazer.');
 };

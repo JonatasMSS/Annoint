@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { server } from '../scripts/serve.js';
+import { readFile } from 'node:fs/promises';
+
+test('versão exibida, manifesto e histórico permanecem consistentes', async () => {
+  const read = name => readFile(new URL('../' + name, import.meta.url), 'utf8');
+  const manifest = JSON.parse(await read('package.json'));
+  const lock = JSON.parse(await read('package-lock.json'));
+  const html = await read('index.html');
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[''].version, manifest.version);
+  assert.equal(/name="application-version" content="([^"]+)"/.exec(html)?.[1], manifest.version);
+  assert.ok((await read('CHANGELOG.md')).includes('## ' + manifest.version));
+});
 
 test('a prévia serve a interface e mantém os arquivos do workspace privados', async () => {
   server.listen(0, '127.0.0.1');

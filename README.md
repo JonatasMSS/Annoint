@@ -2,6 +2,8 @@
 
 Estúdio local de anotação de imagens. Primeira entrega: interface clara em português, com anotação manual por bounding boxes. Baseado nas notas e na referência visual conectadas ao projeto no Maestri.
 
+Versão atual: **0.2.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
+
 ## Abrir
 
 Requer Node.js 22.12+ e npm.
