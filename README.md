@@ -1,8 +1,8 @@
 # Anoint
 
-Estúdio local de anotação de imagens. Primeira entrega: interface clara em português, com anotação manual por bounding boxes. Baseado nas notas e na referência visual conectadas ao projeto no Maestri.
+Estúdio local de anotação de imagens, com caixas manuais e assistência por agente MCP externo. Baseado nas notas e na referência visual conectadas ao projeto no Maestri.
 
-Versão atual: **0.2.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
+Versão atual: **0.3.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
 
 ## Abrir
 
@@ -25,6 +25,7 @@ Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e se
 
 ## O que funciona
 
+- **Assistente MCP no desktop**, com conversa no agente externo: plano e escopo autorizados, calibração por exemplos/correções, sugestões em camada separada, geração em lotes autorizados e aplicação humana com Desfazer. Veja [como conectar, ferramentas e limites](docs/MCP.md).
 - Tela inicial **Projetos** com cartões, nomes, quantidade de imagens e progresso de revisão. Crie um projeto pelo nome, abra um cartão para continuar e use **Projetos** no editor para voltar à biblioteca.
 - Vários projetos locais independentes, com navegação e histórico de desfazer separados. Abrir JSON adiciona uma cópia à biblioteca; o projeto anterior continua salvo. A troca aguarda o salvamento e permanece no editor se houver falha.
 - Exemplo ilustrado local para experimentar a anotação.
@@ -49,7 +50,7 @@ Atalhos: **B** caixa, **V** selecionar, **←/→** navegar, **C** concluir, **D
 
 ## Dados e limites
 
-Os projetos ficam na biblioteca local deste dispositivo. O projeto existente nas versões anteriores é migrado automaticamente, com imagens, classes, anotações e progresso preservados. Exporte JSON para guardar uma cópia fora do aplicativo. Os arquivos permanecem no dispositivo; nenhuma imagem é enviada a um servidor. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
+Os projetos ficam na biblioteca local deste dispositivo. O projeto existente nas versões anteriores é migrado automaticamente, com imagens, classes, anotações e progresso preservados. Exporte JSON para guardar uma cópia fora do aplicativo. O MCP fica desligado até você habilitar a conexão; imagens autorizadas podem chegar ao cliente e ao provedor externo do agente, inclusive na nuvem. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
 
 O Electron mantém uma única instância. No navegador, uma trava por origem impede que outra aba edite o mesmo banco ao mesmo tempo. Use um navegador com Web Locks; a segunda aba informa que o projeto já está aberto e não grava dados.
 
@@ -78,6 +79,7 @@ npm run test:ui
 npm run fixtures:scenes
 npm run test:scenes
 npm run test:native
+npm run test:agent
 npm run fixtures
 ```
 
@@ -104,6 +106,8 @@ A verificação de interface também cobre a biblioteca de projetos, migração 
 - `src/export.js`: conversão YOLO/TrackNet e empacotamento ZIP local.
 - `electron/files.cjs`, `electron/native-files.cjs` e `electron/preload.cjs`: seletores, capabilities locais e exclusão confirmada na Lixeira.
 - `electron/main.cjs`: aplicativo desktop com isolamento, sandbox, CSP no HTML, bloqueio de navegação externa e permissões.
+- `src/assistant.js` e `src/assistant-ui.js`: tarefa, revisão, exemplos, rascunhos e painel do assistente.
+- `mcp/server.js`, `mcp/bridge.cjs` e `electron/agent.cjs`: MCP stdio e ponte privada autenticada com IPC restrito.
 - `scripts/serve.js`: prévia local sem dependências adicionais.
 
-JavaScript nativo e Electron são suficientes nesta etapa. Integração MCP, agentes de anotação, aprendizado de padrões e instalador ficam para próximas entregas.
+O MCP usa o SDK oficial e Zod para validar ferramentas. O modelo de visão fica no cliente escolhido pelo usuário; calibração fornece contexto e exemplos, sem treinamento de pesos garantido. Instalador e runtime Node embutido ficam para uma próxima entrega.
