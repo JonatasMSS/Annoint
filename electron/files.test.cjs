@@ -243,12 +243,12 @@ test('IPC valida remetente/frame/argumentos; confirmação nativa mostra caminho
   backend.close();
 });
 
-test('preload sandbox expõe somente três métodos, sem canais arbitrários nem ipcRenderer', async () => {
+test('preload sandbox expõe arquivos e agente, sem canais arbitrários nem ipcRenderer', async () => {
   let exposed; const calls = [];
   runInNewContext(await fs.readFile(path.join(__dirname, 'preload.cjs'), 'utf8'), {
     require(name) {
       assert.equal(name, 'electron');
-      return { contextBridge: { exposeInMainWorld(name, api) { assert.equal(name, 'anointFiles'); exposed = api; } }, ipcRenderer: { invoke(...args) { calls.push(args); return Promise.resolve(); } } };
+      return { contextBridge: { exposeInMainWorld(name, api) { assert.ok(['anointFiles', 'anointAgent'].includes(name)); if (name === 'anointFiles') exposed = api; else assert.deepEqual(Object.keys(api), ['connect', 'disconnect', 'onRequest']); } }, ipcRenderer: { invoke(...args) { calls.push(args); return Promise.resolve(); } } };
     },
   });
   assert.deepEqual(Object.keys(exposed), ['pick', 'trash', 'available']); assert.equal(Object.isFrozen(exposed), true);
@@ -283,6 +283,7 @@ test('main registra scheme antes de ready e instala backend antes do renderer co
       if (name === 'electron') return electron;
       if (name === 'node:path') return path;
       if (name === 'node:url') return require('node:url');
+      if (name === './agent.cjs') return { registerAgent: () => ({ close() {} }) };
       assert.equal(name, './native-files.cjs');
       return { registerImageScheme() { order.push('scheme'); }, async registerNativeFiles() { order.push('backend'); return { close() {} }; } };
     },

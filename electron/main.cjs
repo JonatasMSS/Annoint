@@ -1,10 +1,12 @@
 const electron = require('electron');
 const { app, BrowserWindow, dialog, session, protocol } = electron;
 const { registerImageScheme, registerNativeFiles } = require('./native-files.cjs');
+const { registerAgent } = require('./agent.cjs');
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
 let fileBackend;
 let mainWindow;
+let agentBackend;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -26,10 +28,12 @@ function createWindow() {
   win.on('closed', () => {
     mainWindow = undefined;
     fileBackend.close();
+    void agentBackend.close();
     if (process.platform !== 'darwin') app.quit();
   });
   win.setMenu(null);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('did-start-loading', () => { void agentBackend.close(); });
   for (const event of ['will-navigate', 'will-frame-navigate', 'will-redirect', 'will-attach-webview']) {
     win.webContents.on(event, (event) => event.preventDefault());
   }
@@ -54,6 +58,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     fileBackend = await registerNativeFiles(electron, app.getPath('userData'), pathToFileURL(path.join(__dirname, '..', 'index.html')).href);
+    agentBackend = registerAgent(electron, pathToFileURL(path.join(__dirname, '..', 'index.html')).href);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     session.defaultSession.setDevicePermissionHandler(() => false);

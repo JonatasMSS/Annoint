@@ -332,6 +332,7 @@ test('Electron carrega index.html com isolamento e bloqueia permissões e navega
       if (name === 'node:path') return path;
       if (name === 'node:url') return { pathToFileURL: value => ({ href: 'file://' + value }) };
       if (name === './native-files.cjs') return { registerImageScheme() {}, registerNativeFiles: async () => ({ close() {} }) };
+      if (name === './agent.cjs') return { registerAgent: () => ({ close() {} }) };
       assert.equal(name, 'electron');
       return { BrowserWindow: Window, session: { defaultSession: session }, app: { getPath: () => '/anoint/profile', requestSingleInstanceLock: () => true, whenReady: () => ready, on() {}, quit() { assert.fail('Inicialização falhou'); } }, dialog: { showErrorBox() { assert.fail('Erro inesperado'); } } };
     },

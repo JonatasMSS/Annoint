@@ -1,5 +1,7 @@
 import { normalizeBox, clampBox, moveBox, validateProject, createProject, MAX_ANNOTATIONS_PER_IMAGE, MAX_PROJECT_ANNOTATIONS, MAX_IMAGES, BATCH_SIZE, updateClass, removeClass, removeImages } from './model.js';
-import { initializeProjects, listProjects, createLocalProject, loadProject, saveProject, storeImage, externalizeProject, portableProject, imageBlob, loadView, saveView, pruneImages } from './storage.js';
+import { initializeProjects, listProjects, createLocalProject, loadProject, saveProject, storeImage, externalizeProject, portableProject, imageBlob, loadView, saveView, pruneImages, loadAssistant } from './storage.js';
+import { emptyAssistant, validateAssistant } from './assistant.js';
+import { createAssistantUI } from './assistant-ui.js';
 import { exportDataset } from './export.js';
 import { batches, BatchCache } from './batches.js';
 
@@ -48,6 +50,8 @@ let project = createProject([{
 const demo = project;
 let activeProjectId = null;
 let activeProjectName = '';
+let assistant = emptyAssistant();
+const assistantSnapshots = new WeakMap();
 let screen = 'projects';
 let library = [];
 let libraryError = '';
@@ -124,6 +128,7 @@ function restoreView(view) {
 
 async function commitEditor() {
   if (!activeProjectId || screen !== 'editor') return;
+  await assistantUI.flush();
   cancelDrag();
   clearTimeout(saveTimer);
   await saveChain;
@@ -131,16 +136,19 @@ async function commitEditor() {
   if (saveError || savedRevision < revision) throw new Error('Salve as alterações antes de sair. Você também pode exportar uma cópia.');
   rememberView();
   await viewChain;
-  sessions.set(activeProjectId, { project, history, future, view: currentView() });
+  sessions.set(activeProjectId, { project, assistant, history, future, view: currentView() });
 }
 
 async function showProjects() {
+  if (navigating) return;
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
   if (navigating) return;
   navigating = true;
   showLoading('Salvando alterações…');
   try {
     await paintLoading();
     await commitEditor();
+    await assistantUI.disconnect();
     const records = await listProjects();
     library = records;
     libraryError = '';
@@ -157,15 +165,18 @@ async function activateProject(id, record = null) {
   const value = session?.project || record?.project || await loadProject(id);
   if (!value) throw new Error('Projeto local não encontrado.');
   const view = session?.view || await loadView(id);
+  const memory = session?.assistant || await loadAssistant(id);
   const restored = validateProject(value);
   if (!restored.labels.length) throw new Error('O projeto precisa ter pelo menos uma classe.');
   const external = await externalizeProject(restored);
   if (restored.images.some((image) => image.src.startsWith('data:'))) await saveProject(id, external);
   const unavailable = window.anointFiles?.available ? await window.anointFiles.available(external.images.map((image) => image.src)) : [];
   activeProjectId = id;
+  await assistantUI.disconnect();
   activeProjectName = record?.name || library.find((item) => item.id === id)?.name || 'Projeto local';
   clearImageSelection();
   project = external;
+  assistant = memory;
   history = session?.history || [];
   future = session?.future || [];
   restoreView(view);
@@ -179,6 +190,8 @@ async function activateProject(id, record = null) {
 }
 
 async function openLocalProject(id) {
+  if (navigating) return;
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
   if (navigating) return;
   navigating = true;
   showLoading('Abrindo projeto…');
@@ -291,9 +304,10 @@ function persist() {
   const version = revision;
   const id = activeProjectId;
   const value = snapshot();
+  const memory = structuredClone(assistant);
   saveChain = saveChain.catch(() => {}).then(async () => {
     try {
-      await saveProject(id, value);
+      await saveProject(id, value, memory);
       if (activeProjectId === id) {
         if (saveError) notify('Alterações salvas neste dispositivo.');
         savedRevision = version;
@@ -316,7 +330,7 @@ function changed() {
 }
 
 function remember() {
-  history.push(snapshot());
+  history.push(historySnapshot());
   if (history.length > 30) history.shift();
   future = [];
 }
@@ -327,15 +341,56 @@ function updateHistory(direction) {
   const from = direction === 'undo' ? history : future;
   const to = direction === 'undo' ? future : history;
   if (!from.length) return;
-  to.push(snapshot());
+  to.push(historySnapshot());
   project = from.pop();
+  assistant = structuredClone(assistantSnapshots.get(project) || emptyAssistant());
+  // Uma resposta anterior ao Desfazer/Refazer não pode reutilizar a autorização antiga.
+  if (assistant.task) { assistant.task.id = uid(); assistant.task.examplesVersion += 1; }
+  if (assistant.pending) assistant.pending.taskId = assistant.task.id;
   if (!project.images.some((image) => image.id === imageId)) imageId = project.images[0]?.id;
   batchIndex = Math.max(0, Math.floor(project.images.findIndex((image) => image.id === imageId) / BATCH_SIZE));
   if (!labelFor(labelId)) labelId = project.labels[0].id;
   if (!currentBox()) selectedId = null;
   changed();
   render();
+  assistantUI.refresh();
 }
+
+function historySnapshot() {
+  const value = snapshot();
+  assistantSnapshots.set(value, structuredClone(assistant));
+  return value;
+}
+
+const assistantUI = createAssistantUI({
+  get: () => ({ project, assistant, projectId: screen === 'editor' ? activeProjectId : null, name: activeProjectName, revision,
+    busy: navigating || importing || exporting || !ready || loadingError || Boolean(drag) }),
+  select: selectImage,
+  overlay: renderOverlay,
+  async commit(transform, undo = false) {
+    if (navigating || importing || exporting || !ready || loadingError || drag || screen !== 'editor') throw new Error('Editor ocupado ou indisponível.');
+    navigating = true;
+    clearTimeout(saveTimer);
+    try {
+      await saveChain;
+      const result = await transform(snapshot(), structuredClone(assistant));
+      const candidate = validateProject(result.project);
+      const memory = validateAssistant(result.assistant);
+      await saveProject(activeProjectId, candidate, memory);
+      if (undo) remember();
+      project = candidate;
+      assistant = memory;
+      revision += 1;
+      savedRevision = revision;
+      saveError = false;
+      render();
+    } finally {
+      navigating = false;
+      if (savedRevision < revision && !loadingError) saveTimer = setTimeout(persist, 350);
+      saveStatus();
+    }
+  },
+});
 
 function render() {
   if (screen === 'projects') { renderProjects(); return; }
@@ -354,14 +409,15 @@ function render() {
   for (const id of selectedImages) if (!visibleIds.has(id)) selectedImages.delete(id);
   $('#app').innerHTML = `<div class="app-shell" data-project-id="${escapeHTML(activeProjectId)}">
     <header class="topbar"><div class="brand"><span class="brand-mark">${icon('logo')}</span>anoint<span class="sr-only">Estúdio de anotação</span></div><span class="top-divider"></span><div class="project-crumb">${icon('folder')}<button class="project-back" data-action="projects">Projetos</button>${icon('chevron')}<strong title="${escapeHTML(activeProjectName)}">${escapeHTML(activeProjectName)}</strong><span class="pill">Local</span></div><div class="top-actions"><button class="icon-button" data-action="help" title="Como usar o Anoint" aria-label="Como usar o Anoint">${icon('help')}</button><button class="button" data-action="open-project" title="Importar JSON como novo projeto">${icon('folder')}<span>Importar JSON</span></button><button class="button primary" data-action="export">${icon('download')}Exportar projeto</button></div></header>
-    <aside class="sidebar" aria-label="Projeto e classes"><div class="workspace-label"><span class="status-dot"></span>Seu espaço de trabalho</div><div class="project-card"><h2 title="${escapeHTML(activeProjectName)}">${escapeHTML(activeProjectName)}</h2><p>Um detalhe de cada vez.</p></div><button class="nav-item active" data-action="show-all">${icon('box')}Anotações<span class="count">${project.images.length}</span></button><button class="nav-item" data-action="import-images">${icon('upload')}Importar imagens</button><hr class="sidebar-separator" /><div class="section-label">Classes<button class="icon-button" data-action="new-class" title="Criar classe" aria-label="Criar classe">${icon('plus')}</button></div><div class="classes">${project.labels.map((label) => `<div class="class-item ${label.id === labelId ? 'selected' : ''}" data-color="${label.color}"><button class="class-select" data-label="${escapeHTML(label.id)}" aria-pressed="${label.id === labelId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(label.name)}</span><span class="class-count">${project.images.reduce((count, item) => count + item.annotations.filter((annotation) => annotation.labelId === label.id).length, 0)}</span></button><button class="icon-button edit-class" data-edit-label="${escapeHTML(label.id)}" aria-label="Editar classe ${escapeHTML(label.name)}" title="Editar nome, cor ou remover classe">${icon('edit')}</button></div>`).join('')}</div><button class="button subtle edit-selected-class" data-action="edit-class">${icon('edit')}Editar classe selecionada</button><p class="sidebar-tip">Escolha uma classe para desenhar. Use o botão acima para editar nome, cor ou remover a classe.</p><div class="sidebar-bottom"><div class="agent-card"><div class="agent-card-heading">${icon('sparkles')}Um assistente para seu olhar</div><p>No futuro, agentes vão ajudar a encontrar e anotar padrões nas suas imagens.</p><span class="coming-soon">EM BREVE · INTEGRAÇÃO MCP</span></div><button class="sidebar-help" data-action="shortcuts">${icon('keyboard')}Atalhos de teclado</button></div></aside>
+    <aside class="sidebar" aria-label="Projeto e classes"><div class="workspace-label"><span class="status-dot"></span>Seu espaço de trabalho</div><div class="project-card"><h2 title="${escapeHTML(activeProjectName)}">${escapeHTML(activeProjectName)}</h2><p>Um detalhe de cada vez.</p></div><button class="nav-item active" data-action="show-all">${icon('box')}Anotações<span class="count">${project.images.length}</span></button><button class="nav-item" data-action="import-images">${icon('upload')}Importar imagens</button><hr class="sidebar-separator" /><div class="section-label">Classes<button class="icon-button" data-action="new-class" title="Criar classe" aria-label="Criar classe">${icon('plus')}</button></div><div class="classes">${project.labels.map((label) => `<div class="class-item ${label.id === labelId ? 'selected' : ''}" data-color="${label.color}"><button class="class-select" data-label="${escapeHTML(label.id)}" aria-pressed="${label.id === labelId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(label.name)}</span><span class="class-count">${project.images.reduce((count, item) => count + item.annotations.filter((annotation) => annotation.labelId === label.id).length, 0)}</span></button><button class="icon-button edit-class" data-edit-label="${escapeHTML(label.id)}" aria-label="Editar classe ${escapeHTML(label.name)}" title="Editar nome, cor ou remover classe">${icon('edit')}</button></div>`).join('')}</div><button class="button subtle edit-selected-class" data-action="edit-class">${icon('edit')}Editar classe selecionada</button><p class="sidebar-tip">Escolha uma classe para desenhar. Use o botão acima para editar nome, cor ou remover a classe.</p><div class="sidebar-bottom"><div class="agent-card"></div><button class="sidebar-help" data-action="shortcuts">${icon('keyboard')}Atalhos de teclado</button></div></aside>
     <main class="workspace"><p class="operation-error" role="alert" ${operationError ? '' : 'hidden'}>${escapeHTML(operationError)}</p><section class="editor" aria-label="Editor de imagem"><div class="editor-toolbar"><div class="tools" role="group" aria-label="Ferramentas de anotação"><button class="tool ${tool === 'select' ? 'selected' : ''}" data-tool="select" aria-pressed="${tool === 'select'}" title="Selecionar e mover (V)">${icon('cursor')}Selecionar<kbd>V</kbd></button><button class="tool ${tool === 'box' ? 'selected' : ''}" data-tool="box" aria-pressed="${tool === 'box'}" title="Desenhar caixa (B)">${icon('box')}Caixa<kbd>B</kbd></button></div><span class="toolbar-divider"></span><button class="icon-button" data-action="undo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" ${history.length ? '' : 'disabled'}>${icon('undo')}</button><button class="icon-button" data-action="redo" title="Refazer (Ctrl+Y)" aria-label="Refazer" ${future.length ? '' : 'disabled'}>${icon('redo')}</button><div class="zoom-controls"><button class="icon-button" data-action="zoom-out" title="Diminuir zoom" aria-label="Diminuir zoom">${icon('minus')}</button><span class="zoom-readout" aria-live="polite"></span><button class="icon-button" data-action="zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom">${icon('plus')}</button><span class="toolbar-divider"></span><button class="icon-button" data-action="fit" title="Ajustar imagem à área de edição" aria-label="Ajustar imagem à área de edição">${icon('fit')}</button></div></div><div class="stage" id="stage"><div class="image-space"><div class="image-surface"><img ${sourceAttributes(image)} alt="${escapeHTML(image.name)}" draggable="false" /><svg class="annotation-layer ${tool === 'box' ? 'draw-mode' : ''}" viewBox="0 0 ${image.width} ${image.height}" aria-label="Anotações sobre ${escapeHTML(image.name)}"></svg></div></div></div><div class="editor-infobar">${icon('image')}<span class="image-filename" title="${escapeHTML(image.name)}">${escapeHTML(image.name)}</span><span class="dimensions">${image.id ? `${image.width} × ${image.height} px` : ''}</span><span class="image-badge">${image.id === 'demo-image' ? 'Exemplo ilustrado' : 'Arquivo local'}</span></div></section><div class="editor-hint"><span>${icon('info')}${tool === 'box' ? 'Clique e arraste para criar uma caixa.' : 'Selecione uma caixa para ajustar os detalhes.'}</span><span><kbd>B</kbd>Caixa <kbd>V</kbd>Selecionar <kbd>Esc</kbd>Cancelar</span></div><section class="filmstrip ${filmstripHidden ? 'collapsed' : ''}" aria-label="Imagens do projeto"><div class="filmstrip-heading"><h2>Imagens do projeto</h2><span class="number">${project.images.length}</span>${batchSelectorMarkup()}<button class="button subtle" data-action="select-images" aria-pressed="${selectingImages}" ${project.images.length ? '' : 'disabled'}>${selectingImages ? 'Cancelar seleção' : 'Selecionar imagens'}</button><button class="button subtle" data-action="toggle-filmstrip" aria-expanded="${!filmstripHidden}" aria-controls="project-thumbnails">${filmstripHidden ? 'Mostrar miniaturas' : 'Ocultar miniaturas'}</button><select id="image-filter" aria-label="Filtrar imagens"><option value="all" ${filter === 'all' ? 'selected' : ''}>Todas as imagens</option><option value="pending" ${filter === 'pending' ? 'selected' : ''}>Pendentes</option><option value="done" ${filter === 'done' ? 'selected' : ''}>Concluídas</option></select></div>${imageSelectionMarkup()}<div class="thumbnails" id="project-thumbnails" ${filmstripHidden ? 'hidden' : ''}>${filtered.map(thumbnailMarkup).join('')}${!filtered.length ? '<span class="filmstrip-empty">Nenhuma imagem neste filtro.</span>' : ''}<button class="add-images" data-action="import-images" title="Importar imagens">${icon('plus')}Adicionar</button></div></section></main>
     <aside class="inspector" aria-label="Anotações e propriedades"><div class="inspector-header"><h2>Anotações</h2><span class="number">${image.annotations.length}</span><button class="icon-button" data-action="draw" title="Criar anotação (B)" aria-label="Criar anotação">${icon('plus')}</button><button class="icon-button delete-box" data-action="delete" title="Excluir caixa selecionada (Delete)" aria-label="Excluir caixa selecionada" ${box ? '' : 'disabled'}>${icon('trash')}</button></div><div class="annotation-list">${image.annotations.map((annotation, index) => `<button class="annotation-row ${annotation.id === selectedId ? 'selected' : ''}" data-box="${escapeHTML(annotation.id)}" data-color="${labelFor(annotation.labelId).color}" aria-pressed="${annotation.id === selectedId}"><span class="class-dot"></span><span class="class-name">${escapeHTML(labelFor(annotation.labelId).name)}</span><span class="annotation-id">${String(index + 1).padStart(2, '0')}</span>${icon('box')}</button>`).join('') || '<div class="empty-inspector">Nenhuma anotação ainda.<br />Use <kbd>B</kbd> para criar a primeira.</div>'}</div>${box ? `<section class="inspector-section"><h3>Propriedades da seleção</h3><label class="field-label" for="box-class">Classe</label><select id="box-class">${project.labels.map((label) => `<option value="${escapeHTML(label.id)}" ${box.labelId === label.id ? 'selected' : ''}>${escapeHTML(label.name)}</option>`).join('')}</select><div class="geometry-grid">${[['x', 'Posição X'], ['y', 'Posição Y'], ['width', 'Largura'], ['height', 'Altura']].map(([key, name]) => `<div class="geometry-field"><label class="field-label" for="box-${key}">${name}</label><input type="number" id="box-${key}" data-geometry="${key}" value="${box[key]}" min="0" max="${key === 'x' || key === 'width' ? image.width : image.height}" step="any" required /><span class="unit">px</span></div>`).join('')}</div><button class="delete-annotation" data-action="delete">${icon('trash')}Excluir anotação<kbd>Del</kbd></button></section>` : '<div class="inspector-section empty-inspector">' + icon('cursor') + '<strong>Um lugar para cada detalhe.</strong><br />Selecione uma anotação para<br />ver e editar suas propriedades.</div>'}<section class="progress-section"><div class="progress-heading"><strong>Seu progresso</strong><span>${percent}%</span></div><div class="progress-track" role="progressbar" aria-label="Imagens concluídas" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><p class="progress-caption">${completed} de ${project.images.length} ${project.images.length === 1 ? 'imagem concluída' : 'imagens concluídas'}</p><button class="button complete-button ${image.reviewed ? 'done' : ''}" data-action="complete" aria-pressed="${image.reviewed}">${icon('checkCircle')}${image.reviewed ? 'Imagem concluída' : 'Concluir imagem'}<kbd>C</kbd></button><p class="inspector-footnote">${image.reviewed ? 'Clique para voltar a editar esta imagem.' : 'Tudo certo? Marque como concluída para continuar.'}</p></section></aside>
-    <footer class="statusbar">${icon('checkCircle')}<button class="save-status" data-action="retry-save"></button><div class="statusbar-right"><span>${icon('lock')}Seus dados ficam neste dispositivo</span><button data-action="shortcuts">${icon('keyboard')}Atalhos</button><span class="app-version">ANOINT · v${escapeHTML(appVersion)}</span></div></footer></div>`;
+    <footer class="statusbar">${icon('checkCircle')}<button class="save-status" data-action="retry-save"></button><div class="statusbar-right"><span>${icon('lock')}MCP: imagens somente com sua autorização</span><button data-action="shortcuts">${icon('keyboard')}Atalhos</button><span class="app-version">ANOINT · v${escapeHTML(appVersion)}</span></div></footer></div>`;
   $('[data-action="import-images"]').insertAdjacentHTML('afterend', `<button class="nav-item" data-action="import-folder">${icon('folder')}Importar pasta</button>`);
   document.querySelectorAll('[data-color]').forEach((element) => element.style.setProperty('--label-color', element.dataset.color));
   $('.progress-fill').style.setProperty('--progress', `${percent}%`);
   saveStatus();
+  $('.agent-card').innerHTML = assistantUI.card();
   $('.annotation-layer')?.addEventListener('pointerdown', pointerDown);
   $('.annotation-layer').addEventListener('pointermove', pointerMove);
   $('.annotation-layer').addEventListener('pointerup', pointerUp);
@@ -447,6 +503,8 @@ function refreshImageSelection() {
 }
 
 async function removeSelectedImages() {
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
+  if (navigating || importing || exporting) return;
   if (loadingError) { notify('A restauração falhou. Exporte uma cópia e resolva o salvamento antes de remover imagens.', true); return; }
   refreshImageSelection();
   const images = filteredImages().filter((image) => selectedImages.has(image.id));
@@ -462,7 +520,7 @@ async function removeSelectedImages() {
     // Só libera as cópias locais depois de confirmar a gravação da remoção.
     clearTimeout(saveTimer);
     await saveChain;
-    await saveProject(activeProjectId, next);
+    await saveProject(activeProjectId, next, assistant);
     project = next;
     if (!project.images.some((image) => image.id === imageId)) imageId = project.images[0]?.id;
     selectedId = null;
@@ -492,6 +550,8 @@ function batchSelectorMarkup() {
 
 async function requestImport(folder) {
   if (importing || exporting) return;
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
+  if (navigating || importing || exporting) return;
   if (!window.anointFiles) { $(folder ? '#folder-input' : '#image-input').click(); return; }
   cancelDrag();
   importing = true;
@@ -522,6 +582,8 @@ async function requestImport(folder) {
 }
 
 async function deleteImage(id) {
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
+  if (navigating || importing || exporting) return;
   const image = project.images.find((item) => item.id === id);
   if (!image) return;
   importing = true;
@@ -585,7 +647,7 @@ function renderOverlay(draft = null) {
     const nameWidth = Math.min((label.name.length * 7 + 18) / scale, image.width - annotation.x);
     const tagY = annotation.y >= 24 / scale ? -22 / scale : 0;
     return `<g class="annotation ${selected ? 'is-selected' : ''}" data-annotation="${escapeHTML(annotation.id)}" data-box-color="${label.color}" transform="translate(${annotation.x} ${annotation.y})"><rect class="box" width="${annotation.width}" height="${annotation.height}"/><rect class="box-name" x="0" y="${tagY}" width="${nameWidth}" height="${22 / scale}" rx="${3 / scale}"/><text x="${7 / scale}" y="${tagY + 15 / scale}" font-size="${11 / scale}">${escapeHTML(label.name)}</text>${selected && tool === 'select' ? [['nw', 0, 0], ['n', .5, 0], ['ne', 1, 0], ['e', 1, .5], ['se', 1, 1], ['s', .5, 1], ['sw', 0, 1], ['w', 0, .5]].map(([handle, x, y]) => `<rect class="resize-handle" data-handle="${handle}" x="${annotation.width * x - 3 / scale}" y="${annotation.height * y - 3 / scale}" width="${6 / scale}" height="${6 / scale}" rx="${1 / scale}"/>`).join('') : ''}</g>`;
-  }).join('') + (draft ? `<rect class="drawing-box" x="${draft.x}" y="${draft.y}" width="${draft.width}" height="${draft.height}"/>` : '');
+  }).join('') + assistantUI.overlay(image, scale) + (draft ? `<rect class="drawing-box" x="${draft.x}" y="${draft.y}" width="${draft.width}" height="${draft.height}"/>` : '');
   svg.querySelectorAll('[data-box-color]').forEach((element) => element.style.setProperty('--box-color', element.dataset.boxColor));
   svg.querySelectorAll('[data-handle]').forEach((element) => { element.style.cursor = `${element.dataset.handle}-resize`; });
 }
@@ -767,6 +829,8 @@ function deleteClass() {
 
 async function importImages(files, folder = false) {
   if (!files.length || importing || exporting) return;
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
+  if (navigating || importing || exporting) return;
   const types = { png: 'png', jpg: 'jpeg', jpeg: 'jpeg', webp: 'webp', avif: 'avif', gif: 'gif', bmp: 'bmp' };
   const mime = (file) => /^image\/(png|jpeg|webp|avif|gif|bmp)$/.test(file.type) ? file.type : `image/${types[file.name.split('.').at(-1).toLowerCase()] || ''}`;
   const ignored = folder ? files.filter((file) => mime(file) === 'image/').length : 0;
@@ -831,13 +895,17 @@ async function importImages(files, folder = false) {
 
 async function openProject(file) {
   if (!file || importing || exporting) return;
+  try { await assistantUI.flush(); } catch (error) { notify(error.message, true); return; }
+  if (importing || exporting || navigating) return;
   cancelDrag();
   importing = true;
   showLoading('Abrindo e validando projeto…');
   try {
     await paintLoading();
     if (file.size > 256 * 1024 * 1024) throw new Error('O arquivo excede o limite de 256 MB.');
-    let value = validateProject(JSON.parse(await file.text()));
+    const backup = JSON.parse(await file.text());
+    let value = validateProject(backup);
+    const memory = validateAssistant(backup.assistant);
     if (value.images.some((image) => /^(asset:|anoint-image:)/.test(image.src))) throw new Error('Abra uma cópia JSON portátil com as imagens incorporadas.');
     if (!value.labels.length) throw new Error('O projeto precisa ter pelo menos uma classe.');
     for (const [index, image] of value.images.entries()) {
@@ -850,7 +918,7 @@ async function openProject(file) {
     showLoading('Salvando o projeto importado…');
     await commitEditor();
     const name = file.name.replace(/\.json$/i, '').trim().slice(0, 200) || 'Projeto importado';
-    const record = await createLocalProject(name, value);
+    const record = await createLocalProject(name, value, memory);
     library = await listProjects();
     await activateProject(record.id, record);
     notify('Projeto aberto como nova cópia. Seus outros projetos foram preservados.');
@@ -887,6 +955,8 @@ function updateExportOptions() {
 
 async function exportProject() {
   if (!ready || exporting || importing || navigating || screen !== 'editor') return;
+  try { await assistantUI.flush(); } catch (error) { $('#export-error').textContent = error.message; return; }
+  if (exporting || importing || navigating) return;
   cancelDrag();
   exporting = true;
   const submit = $('#export-form button[type="submit"]');
@@ -900,7 +970,7 @@ async function exportProject() {
     const value = validateProject(project);
     let blob;
     if (!['json', 'yolo'].includes(format)) throw new Error('TrackNet está temporariamente desabilitado.');
-    if (format === 'json') blob = new Blob([JSON.stringify(await portableProject(value))], { type: 'application/json' });
+    if (format === 'json') blob = new Blob([JSON.stringify(await portableProject(value, assistant))], { type: 'application/json' });
     else {
       value.images = value.images.filter((image) => image.src !== './assets/demo-street.svg');
       if (!value.images.length) throw new Error('Importe imagens reais antes de exportar um dataset.');
@@ -1055,13 +1125,15 @@ window.addEventListener('beforeunload', (event) => {
   if (!ready || navigating || importing || exporting || savedRevision < revision || saveError || loadingError || drag) {
     event.preventDefault();
     event.returnValue = '';
-    if (ready && !loadingError && !drag && !importing) persist();
+    if (ready && !navigating && !exporting && !loadingError && !drag && !importing) persist();
   }
 });
 
 $('#project-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!ready || navigating || importing || exporting) return;
+  try { await assistantUI.flush(); } catch (error) { $('#project-error').textContent = error.message; return; }
+  if (navigating || importing || exporting) return;
   const name = $('#project-name').value.trim();
   if (!name) { $('#project-error').textContent = 'Dê um nome ao projeto.'; $('#project-name').focus(); return; }
   navigating = true;

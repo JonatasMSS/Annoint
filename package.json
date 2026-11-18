@@ -1,6 +1,6 @@
 {
   "name": "anoint",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Anotador desktop local de imagens",
@@ -13,9 +13,15 @@
     "test:native": "electron scripts/check-native-ui.cjs",
     "fixtures": "electron scripts/create-test-images.cjs",
     "fixtures:scenes": "node scripts/create-annotation-scenes.cjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:agent": "electron scripts/check-agent-ui.cjs"
   },
   "devDependencies": {
-    "electron": "44.2.0"
+    "@modelcontextprotocol/client": "2.4.0",
+    "electron": "44.11.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
   }
 }

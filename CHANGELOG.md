@@ -1,5 +1,22 @@
 # Histórico do Anoint
 
+## Em desenvolvimento — 2026-11-18
+
+- Painel do assistente mais compacto, com conexão, ajuda e histórico recolhidos e correções de caixas expansíveis.
+- Botão para limpar a lista do histórico, preservando calibração, exemplos e anotações.
+- Explicação do fluxo de comunicação com o agente externo na ajuda e documentação.
+
+## 0.3.0 — 2026-11-17
+
+- Servidor MCP stdio para agentes externos, com contexto, imagens autorizadas, plano e propostas de caixas.
+- Painel de consentimento por projeto, calibração sequencial e autorização de cada novo lote.
+- Sugestões pontilhadas separadas das anotações finais; aceitar, corrigir, rejeitar, confirmar ausência e usar exemplos manuais.
+- Rascunhos persistidos, aplicação atômica com feedback, retries idempotentes, Desfazer e retomada explícita.
+- Memória do assistente no backup JSON; YOLO continua exportando somente caixas finais.
+- Ponte loopback autenticada e IPC restrito, sem liberar a rede do renderer.
+- Testes de domínio, transporte/IPC e integração Electron/MCP com perfil temporário.
+- Electron atualizado para 44.11.3 e dependências sem alertas no npm audit.
+
 ## 0.2.0 — 2026-11-17
 
 - Edição de nomes e cores das classes e remoção com transferência de caixas.

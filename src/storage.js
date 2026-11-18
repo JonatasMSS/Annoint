@@ -1,4 +1,5 @@
 import { validateProject } from './model.js';
+import { validateAssistant, imageRevision } from './assistant.js';
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -102,28 +103,32 @@ export async function loadProject(id) {
   return record === undefined ? null : validateProject(record.project);
 }
 
-export async function saveProject(id, value) {
+export async function saveProject(id, value, assistant) {
   projectId(id);
   const project = validateProject(value);
-  await projectTransaction(['projects'], 'readwrite', (transaction, result, run) => {
+  const memory = assistant === undefined ? undefined : validateAssistant(assistant);
+  await projectTransaction(memory ? ['projects', 'settings'] : ['projects'], 'readwrite', (transaction, result, run) => {
     const store = transaction.objectStore('projects');
     const request = store.get(id);
     request.onsuccess = () => run(() => {
       if (!request.result) throw new Error('Projeto local não encontrado.');
       store.put({ ...request.result, project, updatedAt: new Date().toISOString() }, id);
+      if (memory) transaction.objectStore('settings').put(memory, `assistant:${id}`);
     });
   });
 }
 
-export async function createLocalProject(name, value) {
+export async function createLocalProject(name, value, assistant) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 200) throw new Error('Informe um nome com até 200 caracteres.');
   const { project, assets } = await prepareProject(value);
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const record = { id, name: name.trim(), createdAt: now, updatedAt: now, project };
-  await projectTransaction(['projects', 'assets'], 'readwrite', (transaction) => {
+  const memory = assistant === undefined ? undefined : await relocateAssistant(assistant, value, project);
+  await projectTransaction(memory ? ['projects', 'assets', 'settings'] : ['projects', 'assets'], 'readwrite', (transaction) => {
     for (const [src, blob] of assets) transaction.objectStore('assets').add(blob, src);
     transaction.objectStore('projects').add(record, id);
+    if (memory) transaction.objectStore('settings').add(memory, `assistant:${id}`);
   });
   return record;
 }
@@ -196,7 +201,7 @@ export async function pruneImages(retainedProjects = []) {
   });
 }
 
-export async function portableProject(value) {
+export async function portableProject(value, assistant) {
   const project = validateProject(value);
   let bytes = 0;
   for (const image of project.images) {
@@ -212,8 +217,23 @@ export async function portableProject(value) {
       });
     }
   }
-  return validateProject(project);
+  const result = validateProject(project);
+  if (assistant === undefined) return result;
+  const memory = await relocateAssistant(assistant, value, result);
+  return memory.task || memory.plan ? { ...result, assistant: memory } : result;
+}
+
+async function relocateAssistant(value, before, after) {
+  const memory = validateAssistant(value);
+  for (const frame of memory.pending?.frames || []) {
+    const original = before.images.find(image => image.id === frame.imageId);
+    const relocated = after.images.find(image => image.id === frame.imageId);
+    // A cópia portátil muda somente a origem; conflitos anteriores continuam conflitos.
+    if (original && relocated && frame.revision === await imageRevision(before, original)) frame.revision = await imageRevision(after, relocated);
+  }
+  return memory;
 }
 
 export const loadView = (id) => accessStore('settings', 'readonly', `view:${projectId(id)}`);
 export const saveView = (id, value) => accessStore('settings', 'readwrite', `view:${projectId(id)}`, value);
+export const loadAssistant = async id => validateAssistant(await accessStore('settings', 'readonly', `assistant:${projectId(id)}`));
