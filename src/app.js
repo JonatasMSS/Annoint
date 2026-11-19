@@ -364,7 +364,10 @@ function historySnapshot() {
 
 const assistantUI = createAssistantUI({
   get: () => ({ project, assistant, projectId: screen === 'editor' ? activeProjectId : null, name: activeProjectName, revision,
-    busy: navigating || importing || exporting || !ready || loadingError || Boolean(drag) }),
+    activeImageId: imageId, activeLabelId: labelId,
+    busy: navigating || importing || exporting || !ready || loadingError || Boolean(drag)
+      || Boolean(document.querySelector('#class-dialog[open], #project-dialog[open]'))
+      || [...document.querySelectorAll('[data-geometry]')].some(input => !input.validity.valid || input.valueAsNumber !== currentBox()?.[input.dataset.geometry]) }),
   select: selectImage,
   overlay: renderOverlay,
   async commit(transform, undo = false) {
@@ -380,6 +383,7 @@ const assistantUI = createAssistantUI({
       if (undo) remember();
       project = candidate;
       assistant = memory;
+      if (!labelFor(labelId)) labelId = project.labels[0].id;
       revision += 1;
       savedRevision = revision;
       saveError = false;

@@ -1,6 +1,25 @@
 const { randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { startAgentBridge } = require('../mcp/bridge.cjs');
+
+function syncMcpConfig(anointConfig) {
+  try {
+    const configPath = path.join(os.homedir(), '.gemini', 'config', 'mcp_config.json');
+    let root = {};
+    if (fs.existsSync(configPath)) {
+      root = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    if (!root || typeof root !== 'object') root = {};
+    if (!root.mcpServers || typeof root.mcpServers !== 'object') root.mcpServers = {};
+    root.mcpServers.anoint = anointConfig;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(root, null, 2) + '\n', 'utf8');
+  } catch {
+    // ignore errors in test or read-only environments
+  }
+}
 
 function registerAgent(api, indexUrl) {
   let connection;
@@ -37,10 +56,14 @@ function registerAgent(api, indexUrl) {
       }));
       if (generation !== startedAt || owner.isDestroyed()) { await bridge.close(); throw new Error('Conexão interrompida.'); }
       connection = { owner, bridge };
-      return { mcpServers: { anoint: {
+      const anoint = {
         command: 'node', args: [path.resolve(__dirname, '../mcp/server.js')],
-        env: { ANOINT_URL: bridge.url, ANOINT_TOKEN: bridge.token },
-      } } };
+        env: { ANOINT_URL: bridge.url, ANOINT_TOKEN: bridge.token, ANOINT_CONFIRMATION_MODE: 'chat' },
+      };
+      if (indexUrl.startsWith('file:///') && !indexUrl.includes('file:///anoint/')) {
+        syncMcpConfig(anoint);
+      }
+      return { mcpServers: { anoint } };
     } finally { connecting = false; }
   });
   api.ipcMain.handle('anoint-agent:disconnect', async event => {

@@ -4,6 +4,8 @@ const { randomBytes, timingSafeEqual } = require('node:crypto');
 const tools = new Set([
   'anoint_get_context', 'anoint_list_images', 'anoint_get_image',
   'anoint_propose_task', 'anoint_submit_proposal',
+  'anoint_control_task', 'anoint_review', 'anoint_manual_example',
+  'anoint_create_class', 'anoint_update_class', 'anoint_remove_class',
 ]);
 
 function failure(status, message) {

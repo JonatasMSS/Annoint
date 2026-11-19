@@ -1,69 +1,72 @@
 # Assistente MCP do Anoint
 
-O chat fica no cliente MCP que você escolher. O Anoint não inclui modelo, assinatura ou chave de API. Use um agente com visão que consiga receber conteúdo de imagem nas ferramentas MCP. O servidor usa o SDK oficial TypeScript/JavaScript 2.4.0 por **stdio**; os testes verificam o cliente SDK 2.4.0 e o protocolo legado 2025-11-25. A compatibilidade da interface de configuração depende do cliente escolhido.
+O **chat externo conduz todo o trabalho**: instruções, classes, plano, permissões, exemplos, avaliação e aplicação das caixas. No Anoint você obtém a conexão e usa o editor quando quiser corrigir algo manualmente. Não há chat, aprovação de lote ou formulário de revisão no aplicativo.
 
-## Conectar
+## Conectar uma vez
 
-1. Instale Node.js 22.12+ e execute `npm ci` e `npm start` neste repositório.
-2. Abra um projeto, importe as imagens e crie a classe que deseja identificar, por exemplo **Bola**.
-3. Abra **Abrir assistente → Habilitar MCP**. Leia o aviso de compartilhamento.
-4. Abra **Conexão MCP** e copie a configuração para o cliente MCP. Ela contém o caminho absoluto de `mcp/server.js`, a porta local e uma chave temporária. Se seu cliente recebe comando, argumentos e variáveis separadamente, use os mesmos valores.
-5. Inicie a conversa no cliente. Um exemplo:
+1. Instale Node.js 22.12+ e execute `npm ci` e `npm start`.
+2. Abra o projeto e importe as imagens que deseja anotar.
+3. Abra **Conexão MCP → Habilitar MCP**, copie a configuração e configure seu cliente MCP. Ela contém uma chave privada temporária; não a compartilhe.
+4. Continue no chat de um agente com visão e suporte a imagens MCP. Por exemplo:
 
-> Quero marcar bolas amarelas. Ignore reflexos e sombras. Proponha um plano para 12 imagens, usando as primeiras 3 para calibração e lotes de 3 depois. Leia o contexto do Anoint, liste as imagens e use a classe Bola. Aguarde minhas autorizações no aplicativo. Analise as imagens autorizadas e envie caixas em pixels naturais. Consulte minhas correções antes de continuar.
+> Quero marcar bolas amarelas. Crie a classe Bola se necessário. Proponha um plano para estas 12 imagens, com 3 de calibração e lotes de 3. Analise as 3 imagens de cada rodada juntas, mostre as sugestões aqui e peça uma confirmação para revisar o conjunto, permitindo aceitar umas e rejeitar outras. Se eu ajustar no editor e disser “este é o correto”, use as caixas atuais como exemplo. Para remover uma classe, peça uma confirmação adicional.
 
-O agente deve consultar as ferramentas; colar uma descrição no chat por si só não executa inferência no Anoint. Não existe ferramenta para o agente se aprovar ou aplicar caixas finais.
+O agente pode criar classes e renomeá-las preservando IDs e caixas. A conexão disponibiliza metadados e essas operações; **não autoriza automaticamente as imagens nem a aplicação de propostas**. Antes de liberar pixels, o chat apresenta projeto, alvo, classe, escopo, calibração e lote, incluindo o possível envio das imagens ao provedor externo, inclusive na nuvem.
 
-O aplicativo precisa continuar aberto no projeto conectado. Fechar, recarregar, trocar de projeto ou desconectar revoga a conexão. Copie a nova configuração ao reconectar. Uma tarefa salva exige **Retomar e autorizar** antes de liberar imagens novamente. O navegador de prévia continua com edição manual; este MCP conecta ao aplicativo desktop.
+O aplicativo precisa permanecer aberto no projeto conectado. Fechar, recarregar, trocar de projeto ou desconectar revoga a chave. Após reconectar, copie a nova configuração e peça **retomar** no chat. Tarefa, exemplos e propostas persistem; o compartilhamento exige nova autorização.
 
-## Calibrar e revisar
+Para renovar uma conexão com problema, use **Conexão MCP → Resetar conexão MCP**. A ponte é reiniciada com outra chave, a configuração anterior é revogada e as confirmações da conexão antiga são descartadas. O projeto, as anotações, a calibração, o feedback e as propostas continuam salvos. Copie a nova configuração para o cliente, reinicie o MCP nele e peça **retomar** no chat; o acesso às imagens exige nova autorização. Se a reconexão falhar, o painel mostra o erro e permite habilitar o MCP novamente.
 
-O agente envia um plano com descrição, classe, IDs exatos do escopo, número de amostras e tamanho do lote. Confira as imagens no painel e autorize. A calibração libera **uma imagem por vez**, até completar o número combinado.
+## Confirmações no cliente
 
-As caixas pontilhadas com rótulo **Sugestão** ficam separadas das anotações finais. Abra a imagem no editor e volte ao assistente para aceitar, corrigir as medidas, adicionar uma caixa faltante, rejeitar explicando o erro ou confirmar ausência do alvo. As medidas do painel são pixels da imagem original. Salve a decisão de cada imagem e confirme a revisão. Somente caixas aceitas ou corrigidas são adicionadas, preservando as existentes; verifique possíveis sobreposições. Imagens alteradas voltam a pendentes. **Concluir imagem** continua sendo uma ação humana independente.
+Por padrão, as confirmações acontecem **pelo chat**, mesmo quando o cliente anuncia suporte a **MCP form elicitation**. Alguns clientes anunciam essa capacidade, mas cancelam formulários automaticamente; declarar a capacidade não garante que a pergunta chegará ao usuário. A configuração copiada pelo Anoint inclui `ANOINT_CONFIRMATION_MODE: "chat"` em `env`. Configurações antigas sem esse campo também usam o chat ao reiniciar o processo MCP com o servidor atualizado.
 
-Você também pode desenhar as primeiras caixas manualmente e usar **Usar minhas caixas**. O botão usa apenas a classe alvo na próxima amostra. Ausência precisa de confirmação explícita e não é permitida se essa classe já tiver caixas na imagem. Rejeitar uma hipótese ou receber zero caixas não significa que o objeto esteja ausente.
+A ferramenta devolve `confirmation_required`, com mensagem, ID temporário e frase. O agente deve apresentar a pergunta no chat, esperar uma resposta explícita e só então repetir a mesma operação com `confirmation: {id, answer}`. **Nesse modo a confirmação é delegada ao agente: o servidor não autentica quem escreveu a resposta no chat.** Não existe comprovação criptográfica de participação humana; use um cliente confiável. O fluxo não manda o usuário voltar ao Anoint para aprovar.
 
-Depois da calibração, autorize cada próximo lote. O agente recebe a descrição, os exemplos e as correções versionadas pelo `anoint_get_context`. Isso orienta a inferência seguinte; não treina pesos nem garante acurácia. O usuário pode mudar quantidades e critérios no chat, solicitando um novo plano. Autorizar um plano novo substitui a tarefa e os exemplos anteriores daquele projeto.
+Para clientes com formulários funcionais, é possível optar por `ANOINT_CONFIRMATION_MODE: "native"` em `env` e reiniciar o processo MCP. Nesse modo, o servidor usa o formulário se o cliente declarar suporte; sem suporte, mantém a confirmação pelo chat. Recusa, cancelamento, resposta inválida ou ausência de resposta não executam a operação nem mudam automaticamente para o chat. Se esse cliente cancela formulários automaticamente, escolha `"chat"` na configuração e reinicie o processo MCP. Valores diferentes de `chat`/`native` impedem a inicialização, em vez de mudar o canal silenciosamente.
 
-## Persistência, conflitos e Desfazer
+Aprovar um lote para geração é separado de aprovar suas caixas finais. A espera não bloqueia o editor nem mantém requisição HTTP aberta.
 
-Plano, sugestões, rascunhos de revisão, decisões e feedback ficam em um registro separado por projeto no IndexedDB. Aplicar caixas e registrar o feedback usa uma única transação. Uma falha preserva o projeto anterior e a proposta para nova tentativa. Chamadas repetidas com o mesmo ID e conteúdo não duplicam caixas.
+Cada confirmação é vinculada à conexão, ao projeto, à ação, aos argumentos e à revisão. Alterar o projeto antes de confirmar exige ler o contexto e pedir nova confirmação. Respostas concluídas podem ser repetidas sem reaplicar efeitos enquanto o recibo estiver disponível na sessão.
 
-Os rascunhos das sugestões são salvos automaticamente; alterar uma decisão salva exige **Salvar decisão** novamente antes de aplicar. A aplicação e os exemplos manuais entram no histórico de **Desfazer**, junto com a memória do agente. Desfazer/Refazer troca o identificador da tarefa; consulte o novo contexto e autorize a retomada antes de novas leituras. O histórico de Desfazer, como nas demais ferramentas, dura a sessão.
+Para **remover classe**, há duas etapas: primeiro o impacto (quantas caixas/imagens e para qual classe transferir); depois uma confirmação extra com a frase exata **REMOVER Nome da classe**. A primeira resposta nunca remove a classe. A última classe é protegida; classes usadas exigem destino válido e preservam a geometria das caixas. Remover a classe alvo cancela sua tarefa. As escritas entram no Desfazer do editor.
 
-O painel mostra a etapa atual; **Conexão MCP**, **Histórico** e **Como funciona** ficam recolhidos. **Limpar histórico** oculta os registros atuais da lista, inclusive após reabrir o projeto. Preserva exemplos, calibração, decisões, recibos e caixas; novos registros aparecem normalmente. Essa preferência acompanha a memória nos backups e no Desfazer. O chat externo não é alterado.
+## Revisar e corrigir no chat
 
-O Anoint responde às chamadas do agente e entrega feedback confirmado por `anoint_get_context`. Esta integração não inicia turnos nem envia mensagens espontâneas ao chat externo: o cliente controla quando executar o modelo. Isso mantém o chat no agente escolhido, sem configurar um provedor de modelo dentro do Anoint. Não é uma restrição geral do MCP; iniciar trabalho a partir do aplicativo exigiria uma integração própria com o cliente ou provedor.
+O agente envia propostas separadas das anotações finais. `get_image` com `view: "review"` devolve uma prévia para exibir no chat: sugestões pontilhadas e numeradas, anotações existentes contínuas. Somente decisões confirmadas em `review` adicionam caixas. É possível aceitar, corrigir coordenadas, rejeitar explicando o erro ou confirmar ausência do alvo. Rejeitar uma caixa ou receber zero sugestões **não** confirma ausência.
 
-Uma edição manual posterior à proposta impede a aplicação das caixas daquela imagem. Descarte o lote e peça outra proposta. Alterar exemplos já usados na calibração exige recalibrar com um novo plano. O agente nunca sobrescreve caixas manualmente nem remove arquivos ou classes.
+A calibração e os lotes seguintes aceitam várias imagens por rodada: `batchSize` define o tamanho do conjunto, de 1 a 100 imagens. Por exemplo, 6 imagens de calibração com lotes de 3 são analisadas em duas rodadas de 3. O agente envia as caixas de todas as imagens liberadas em uma chamada `submit_proposal`; você vê as prévias, indica quais ficaram boas ou ruins e confirma o conjunto em uma chamada `review`, com decisões diferentes por imagem. Essa confirmação aplica apenas as caixas aceitas/corrigidas e salva as rejeições/ausências como feedback; não exige uma confirmação por foto. Uma proposta já pendente de uma versão anterior mantém seu conjunto até ser revisada ou descartada. Depois da calibração, cada novo lote precisa de autorização no chat. A calibração fornece contexto e feedback ao modelo; não treina pesos nem garante precisão.
 
-Descartar um lote consome seu ID: uma resposta atrasada ou um retry não traz a mesma proposta de volta. O agente precisa usar um novo `requestId`. Rascunhos e decisões intermediárias não são compartilhados pelo contexto MCP; somente a revisão confirmada produz feedback para o agente.
+Para corrigir manualmente, ajuste ou desenhe as caixas da classe alvo no editor, termine os campos com Tab/Enter e diga no chat **“este é o correto”**. O agente lê a imagem e a revisão atuais. Com proposta pendente, usa decisão `manual` em `review`; sem proposta, usa `manual_example`. As caixas manuais já existentes são registradas como feedback **sem duplicação**. Ausência continua exigindo decisão explícita.
 
-O JSON portátil inclui um campo opcional `assistant` com tarefa, decisões e feedback. A cópia preserva os IDs e adapta as revisões quando somente a referência da imagem muda no transporte. Conflitos que já existiam continuam bloqueados. YOLO exporta apenas as caixas finais de `annotations`; sugestões e feedback ficam fora do dataset.
+Corrigir um exemplo de calibração já confirmado atualiza sua versão e descarta propostas baseadas no exemplo antigo. Outros conflitos manuais continuam bloqueados. Criar/renomear classes mantém IDs e geometria; o aplicativo adapta apenas hashes de estados anteriores que ainda coincidam exatamente, sem ocultar edições manuais.
+
+Tarefas e rascunhos da versão anterior são preservados. Ao retomar pelo chat, confirme o compartilhamento do escopo e dos rascunhos/decisões salvos. Só depois o contexto inclui esses campos para avaliação no chat. Aprovar plano novo substitui tarefa e exemplos anteriores, com aviso na confirmação.
 
 ## Ferramentas
 
 | Ferramenta | Uso |
 | --- | --- |
-| `anoint_get_context` | Projeto, classes, tarefa, imagens liberadas e feedback; sem caminhos locais. |
-| `anoint_list_images` | Metadados paginados; `offset` e `limit` (máximo 100). |
-| `anoint_get_image` | Uma imagem autorizada em JPEG, com dimensões, escalas e revisão. |
-| `anoint_propose_task` | `requestId`, `description`, `labelId`, `calibrationCount`, `batchSize`, `imageIds`. Aguarda autorização humana. |
-| `anoint_submit_proposal` | `requestId`, `taskId`, `frames` com `imageId`, `revision` e `boxes` (`x`, `y`, `width`, `height`); `message` opcional. Aguarda revisão humana. |
+| `anoint_get_context` | Projeto, classes, imagem/classe ativa, fase, feedback, histórico visível e instruções. |
+| `anoint_list_images` | Metadados paginados, sem caminhos locais; `offset`, `limit` até 100. |
+| `anoint_get_image` | `imageId`, `view: source/review`; imagem JPEG e revisão/escala naturais. |
+| `anoint_propose_task` | Plano com `requestId`, descrição, classe, calibração, lote e IDs exatos do escopo. |
+| `anoint_submit_proposal` | `requestId`, `taskId`, frames com imagem/revisão/caixas; sem escrever finais. |
+| `anoint_control_task` | `plan`, `batch`, `resume`, `cancel`, `discard`, `clear_history`. Use `requestId` do plano/lote e `taskId` vigente. |
+| `anoint_review` | `taskId`, `requestId` da proposta, decisões por imagem; confirma/aplica atomicamente. `manual` exige `revision` atual. |
+| `anoint_manual_example` | `taskId`, imagem, revisão atual, comentário e `absent` booleano; confirma exemplo manual. |
+| `anoint_create_class` | `id`, `name`, `color` hexadecimal; até 100 classes e nomes distintos. |
+| `anoint_update_class` | `id`, `name`; preserva ID, cor e caixas. |
+| `anoint_remove_class` | `id`, `replacementId` quando usada; duas confirmações e transferência de caixas. |
 
-Envie exatamente os IDs liberados naquela rodada. `boxes: []` representa uma hipótese sem detecções, que ainda precisa de revisão humana. IDs de requisição não podem ser reutilizados com conteúdo diferente. Propostas com revisão antiga, geometrias inválidas ou fora do escopo são recusadas.
+## Persistência e limites
 
-## Limites e privacidade
+Projeto, propostas e feedback são gravados em uma única transação. Falha mantém o estado anterior e permite tentar novamente. Propostas têm IDs e revisões; descartar um lote consome seu ID e não permite reinseri-lo por resposta atrasada. O descarte identifica exatamente a proposta vigente.
 
-- Uma tarefa ativa por projeto; um lote pendente. Calibração e lote: 1–100 imagens; escopo: até 10.000. Até 1.000 sugestões por imagem e corpo de chamada de 1 MiB. Lotes muito densos devem ser menores. As quotas finais do projeto continuam válidas.
-- Memória de até 8 MiB: até 100 exemplos de calibração, últimos 100 feedbacks de lote e últimos 100 recibos; progresso completo do escopo é preservado.
-- O preview enviado é rasterizado sem EXIF, com lado máximo de 4.096 pixels. Use `scaleX`/`scaleY` para converter o preview para pixels naturais. Objetos pequenos podem sumir nessa redução; não conclua ausência por isso. GIF é recusado: importe um frame estático. Não há extração de frames de vídeo.
-- A ponte privada usa HTTP somente em `127.0.0.1`, porta temporária, Bearer aleatório, Host exato e rejeição de Origin. A ponte não é um servidor MCP remoto nem OAuth. O MCP usa stdio e lê a configuração pelo ambiente. A rede do renderer continua bloqueada.
-- Nomes, classes e anotações são liberados ao habilitar a conexão. Pixels são liberados apenas depois da autorização do plano/escopo. O cliente ou provedor externo pode receber essas imagens na nuvem. Localhost não garante inferência local.
-- A chave temporária protege a conexão; não compartilhe a configuração. Não é uma barreira contra programas maliciosos rodando como o mesmo usuário. Não há ferramentas de shell, arquivo arbitrário, URL externa, exclusão ou aprovação remota.
-- A execução pelo repositório exige Node instalado. Um instalador com runtime embutido não faz parte desta entrega.
+JSON portátil preserva tarefa, propostas, rascunhos e feedback. YOLO exporta somente `annotations` finais. **Limpar histórico** no chat limpa apenas a lista exibida pelo assistente, preservando calibração, caixas e feedback necessário ao modelo; não apaga a conversa do cliente. O Desfazer do editor restaura também a memória e revoga a autorização anterior.
 
-## Validação
+Uma tarefa e um lote pendente por projeto; calibração/lote até 100 imagens, escopo até 10.000. Até 1.000 propostas por imagem, 1 MiB por chamada e 8 MiB de memória, com toda a calibração e os últimos 100 feedbacks de lote/recibos. Imagens são rasterizadas sem EXIF, lado máximo 4.096; objetos pequenos podem sumir na redução. GIF exige importação de frame estático. Não há extração de vídeo.
 
-`npm test` verifica domínio, cotas, revisões, fases, retries, schemas, IPC e ponte HTTP/stdio com SDK real. `npm run test:agent` executa Electron com perfil e imagens temporários: autorização, imagem raster, correção, falha/abort e retry atômico, lote misto, Desfazer, JSON e retomada. Os testes não usam o perfil ou arquivos originais do usuário.
+O MCP usa SDK oficial 2.4.0 por stdio, com protocolo moderno 2026-07-28 e adaptação legada 2025-11-25 testados. A ponte privada usa loopback, Bearer temporário, Host exato e rejeita Origin; não é MCP HTTP remoto/OAuth. A rede do renderer permanece bloqueada. Localhost não garante inferência local: cliente e provedor externo podem receber as imagens autorizadas.
+
+`npm test` cobre domínio, schemas, elicitation moderna/legada, transporte e IPC. `npm run test:agent` cobre Electron isolado + SDK real: conexão, chat/confirmações, preview, classes, edição manual, conflitos, commit/abort, lotes, remoção dupla e backup/reload. O teste não usa imagens nem perfil reais do usuário.

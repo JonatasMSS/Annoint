@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   emptyAssistant, validateAssistant, imageRevision, availableImages, proposeTask, approveTask,
   submitProposal, reviewProposal, useManualExample, authorizeBatch, cancelTask, saveDecision, saveDraft, discardProposal, examplesCurrent,
+  confirmManualExample, refreshClassExamples,
 } from '../src/assistant.js';
 import { createProject, validateProject } from '../src/model.js';
 
@@ -22,7 +23,7 @@ function fixture(length = 5, targetBox = false) {
 }
 
 const taskArgs = (project, changes = {}) => ({
-  requestId: 'plan-1', description: 'Bola amarela', labelId: 'ball', calibrationCount: 2, batchSize: 2,
+  requestId: 'plan-1', description: 'Bola amarela', labelId: 'ball', calibrationCount: 2, batchSize: 1,
   imageIds: project.images.map(image => image.id), ...changes,
 });
 const activate = (project, changes = {}) => approveTask(proposeTask(emptyAssistant(), project, taskArgs(project, changes)), project);
@@ -59,6 +60,73 @@ test('limpar a lista preserva calibração, recibos e progresso após serializar
   for (const historyClearedCount of [-1, 1.5, 3, '1', null]) {
     assert.throws(() => validateAssistant({ ...cleared, historyClearedCount }), /Histórico exibido/);
   }
+});
+
+test('Este é o correto registra caixas manuais da proposta sem duplicar IDs ou anotações', async () => {
+  const original = fixture();
+  let state = activate(original, { calibrationCount: 1 });
+  state = await submitProposal(state, original, await proposal(original, state));
+  const edited = clone(original);
+  edited.images[0].annotations.push({ id: 'human-ball', labelId: 'ball', ...corrected });
+  edited.images[0].reviewed = false;
+  const revision = await imageRevision(edited, edited.images[0]);
+  await assert.rejects(() => reviewProposal(edited, state, [{ imageId: 'image-1', decision: 'manual', note: 'Correto', revision: state.pending.frames[0].revision }]), /Conflito/);
+  const result = await reviewProposal(edited, state, [{ imageId: 'image-1', decision: 'manual', note: 'Este é o correto', revision }]);
+  assert.deepEqual(result.project, edited);
+  assert.equal(result.added, 0);
+  assert.deepEqual(result.assistant.feedback[0].proposed, [geometry]);
+  assert.deepEqual(result.assistant.feedback[0].final, [corrected]);
+  assert.equal(result.assistant.feedback[0].decision, 'manual');
+  assert.equal(result.assistant.task.phase, 'awaiting_batch');
+});
+
+test('ausência após ajuste manual exige revisão atual e não aceita caixas alvo contraditórias', async () => {
+  const project = fixture();
+  let state = activate(project);
+  state = await submitProposal(state, project, await proposal(project, state));
+  const edited = clone(project); edited.images[0].annotations[0].x += 1;
+  await assert.rejects(() => reviewProposal(edited, state, [{ imageId: 'image-1', decision: 'absent', note: 'Sem alvo' }]), /Conflito/);
+  const decision = { imageId: 'image-1', decision: 'absent', note: 'Sem alvo', revision: await imageRevision(edited, edited.images[0]) };
+  assert.deepEqual((await reviewProposal(edited, state, [decision])).project, edited);
+  edited.images[0].annotations.push({ id: 'ball-now', labelId: 'ball', ...geometry });
+  await assert.rejects(async () => reviewProposal(edited, state, [{ ...decision, revision: await imageRevision(edited, edited.images[0]) }]), /caixas desta classe/);
+});
+
+test('corrigir exemplo de calibração confirmado atualiza feedback e invalida lote sem reaplicar caixas', async () => {
+  const project = fixture(3, true);
+  let state = useManualExample(project, activate(project, { calibrationCount: 1 }), 'image-1', 'Exemplo');
+  state = authorizeBatch(state);
+  const request = await proposal(project, state, 'batch-old');
+  state = await submitProposal(state, project, request);
+  const edited = clone(project); edited.images[0].annotations[1].x = 9;
+  assert.equal(examplesCurrent(edited, state), false);
+  const revision = await imageRevision(edited, edited.images[0]);
+  await assert.rejects(() => confirmManualExample(edited, state, 'image-1', 'old', 'Correto'), /imagem mudou/);
+  const next = await confirmManualExample(edited, state, 'image-1', revision, 'Este é o correto');
+  assert.equal(next.pending, null);
+  assert.equal(next.task.phase, 'awaiting_batch');
+  assert.equal(next.feedback.length, 1);
+  assert.equal(next.feedback[0].final[0].x, 9);
+  assert.deepEqual(next.completed, ['image-1']);
+  assert.equal(examplesCurrent(edited, next), true);
+  assert.equal(next.receipts[0].requestId, 'batch-old');
+  assert.ok(state.pending);
+});
+
+test('mudança apenas de metadados de classe preserva exemplos e revisões válidas, sem esconder edição manual', async () => {
+  const project = fixture(3, true);
+  let state = useManualExample(project, activate(project, { calibrationCount: 1 }), 'image-1', 'Exemplo');
+  state = authorizeBatch(state); state = await submitProposal(state, project, await proposal(project, state));
+  const renamed = clone(project); renamed.labels[0].name = 'Bola amarela';
+  const next = await refreshClassExamples(project, renamed, state);
+  assert.equal(examplesCurrent(renamed, next), true);
+  assert.equal(next.pending.frames[0].revision, await imageRevision(renamed, renamed.images[1]));
+  assert.deepEqual(renamed.images, project.images);
+  const edited = clone(project); edited.images[0].annotations[1].x = 8; edited.images[1].annotations[0].x = 8;
+  const after = clone(edited); after.labels[0].name = 'Outra descrição';
+  const conflict = await refreshClassExamples(edited, after, state);
+  assert.equal(examplesCurrent(after, conflict), false);
+  assert.equal(conflict.pending.frames[0].revision, state.pending.frames[0].revision);
 });
 
 test('rascunho incompleto é durável e invalida decisão antiga até salvar novamente', async () => {
@@ -118,20 +186,20 @@ test('plano e proposta não aprovam nem modificam projeto; autorizações são o
   assert.deepEqual(project, original);
 });
 
-test('calibração avança uma imagem por vez e cada lote exige nova autorização humana', async () => {
+test('calibração permite várias imagens por rodada e cada lote seguinte exige autorização humana', async () => {
   let project = fixture();
-  let state = activate(project);
-  for (let index = 1; index <= 2; index++) {
-    assert.deepEqual(availableImages(state), [`image-${index}`]);
-    state = await submitProposal(state, project, await proposal(project, state, `cal-${index}`));
-    assert.throws(() => authorizeBatch(state));
-    const result = await reviewProposal(project, state, decisions(state));
-    project = result.project;
-    state = result.assistant;
-    assert.equal(result.added, 1);
-  }
+  let state = activate(project, { batchSize: 2 });
+  assert.deepEqual(availableImages(state), ['image-1', 'image-2']);
+  const args = await proposal(project, state, 'calibration');
+  await assert.rejects(submitProposal(state, project, { ...args, frames: args.frames.slice(0, 1) }), /exatamente/);
+  state = await submitProposal(state, project, args);
+  assert.throws(() => authorizeBatch(state));
+  const result = await reviewProposal(project, state, decisions(state));
+  project = result.project;
+  state = result.assistant;
+  assert.equal(result.added, 2);
   assert.equal(state.task.phase, 'awaiting_batch');
-  assert.equal(state.task.examplesVersion, 2);
+  assert.equal(state.task.examplesVersion, 1);
   assert.deepEqual(availableImages(state), []);
   const stale = await proposal(project, state, 'early');
   await assert.rejects(submitProposal(state, project, stale));
@@ -148,6 +216,57 @@ test('calibração avança uma imagem por vez e cada lote exige nova autorizaç�
   assert.deepEqual(state.completed, project.images.map(image => image.id));
   assert.deepEqual(availableImages(state), []);
   assert.throws(() => authorizeBatch(state));
+});
+
+test('uma rodada revisa múltiplas caixas e decisões mistas sem aplicar imagens rejeitadas', async () => {
+  const project = fixture(4);
+  const before = clone(project);
+  let state = activate(project, { calibrationCount: 4, batchSize: 4 });
+  const args = await proposal(project, state, 'mixed', [geometry, corrected]);
+  args.frames[3].boxes = [];
+  state = await submitProposal(state, project, args);
+  const review = [
+    { imageId: 'image-1', decision: 'accepted', note: '' },
+    { imageId: 'image-2', decision: 'corrected', boxes: [corrected], note: 'Ajustei a posição' },
+    { imageId: 'image-3', decision: 'rejected', note: 'Não é uma bola' },
+    { imageId: 'image-4', decision: 'absent', note: 'Sem alvo' },
+  ];
+  const saved = validateAssistant(JSON.parse(JSON.stringify(state)));
+  await assert.rejects(reviewProposal(project, saved, review.slice(0, 3)), /cada imagem/);
+  await assert.rejects(reviewProposal(project, saved, [...review.slice(0, 3), { ...review[3], decision: 'accepted' }]), /vazia/);
+  assert.deepEqual(project, before);
+  assert.equal(saved.completed.length, 0);
+  const result = await reviewProposal(project, saved, review);
+  assert.equal(result.added, 3);
+  assert.deepEqual(result.project.images.map(image => image.annotations.length), [3, 2, 1, 1]);
+  assert.deepEqual(result.project.images.map(image => image.reviewed), [false, false, true, true]);
+  assert.deepEqual(result.assistant.feedback.map(item => item.decision), review.map(item => item.decision));
+  assert.equal(result.assistant.task.phase, 'complete');
+  const retry = await submitProposal(result.assistant, result.project, args);
+  assert.equal(retry.pending, null);
+  assert.equal(retry.feedback.length, 4);
+});
+
+test('rodada antiga de uma imagem é preservada ao restaurar e a próxima calibração usa o lote', async () => {
+  const project = fixture(5);
+  let state = activate(project, { calibrationCount: 4, batchSize: 1 });
+  const args = await proposal(project, state);
+  state = await submitProposal(state, project, args);
+  state.task.batchSize = 2;
+  state = validateAssistant(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(availableImages(state), ['image-1']);
+  assert.deepEqual(await submitProposal(state, project, args), state);
+  const outside = clone(state); outside.pending.frames[0].imageId = 'image-2';
+  assert.throws(() => validateAssistant(outside), /escopo/);
+  const oversized = clone(state); oversized.task.batchSize = 1;
+  oversized.pending.frames.push({ ...clone(state.pending.frames[0]), imageId: 'image-2' });
+  assert.throws(() => validateAssistant(oversized), /Lote pendente/);
+  const result = await reviewProposal(project, state, decisions(state));
+  assert.equal(result.assistant.task.phase, 'calibration');
+  assert.deepEqual(availableImages(result.assistant), ['image-2', 'image-3']);
+  const next = await submitProposal(result.assistant, result.project, await proposal(result.project, result.assistant, 'next'));
+  const reviewed = await reviewProposal(result.project, next, decisions(next));
+  assert.deepEqual(availableImages(reviewed.assistant), ['image-4']);
 });
 
 test('escopo inteiro usado na calibração termina sem lote adicional', () => {
@@ -341,7 +460,7 @@ test('limite de 1000 caixas e mensagens no teto são aceitos; proposta acima de 
 
 test('conflito durante revisão de lote impede resultado parcial e preserva as duas entradas', async () => {
   let project = fixture();
-  let state = activate(project, { calibrationCount: 1 });
+  let state = activate(project, { calibrationCount: 1, batchSize: 2 });
   state = useManualExample(project, state, 'image-1', '', true);
   state = authorizeBatch(state);
   state = await submitProposal(state, project, await proposal(project, state));

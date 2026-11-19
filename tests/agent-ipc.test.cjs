@@ -13,6 +13,7 @@ test('IPC da ponte aceita só janela/frame confiáveis, correlaciona respostas e
   const connect = handlers['anoint-agent:connect'];
   for (const invalid of [{}, { ...event, senderFrame: { url: owner.mainFrame.url } }, { sender: { ...owner }, senderFrame: owner.mainFrame }]) await assert.rejects(connect(invalid), /autorizado/);
   const first = (await connect(event)).mcpServers.anoint;
+  assert.equal(first.env.ANOINT_CONFIRMATION_MODE, 'chat');
   assert.equal(first.command, 'node'); assert.match(first.args[0], /mcp[\\/]server\.js$/);
   const call = config => fetch(config.env.ANOINT_URL + '/call', { method: 'POST', headers: { Authorization: 'Bearer ' + config.env.ANOINT_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'anoint_get_context', args: {} }) });
   const pending = call(first);

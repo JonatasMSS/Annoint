@@ -1,318 +1,147 @@
-import { availableImages, proposeTask, approveTask, submitProposal, reviewProposal,
-  useManualExample, authorizeBatch, cancelTask, saveDecision, saveDraft, discardProposal, imageRevision, examplesCurrent } from './assistant.js';
+import { availableImages, proposeTask, approveTask, submitProposal, reviewProposal, confirmManualExample,
+  authorizeBatch, cancelTask, discardProposal, imageRevision, examplesCurrent, refreshClassExamples } from './assistant.js';
+import { validateProject, updateClass, removeClass } from './model.js';
 import { imageBlob } from './storage.js';
 
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const check = (value, message) => { if (!value) throw new Error(message); };
-const phases = { calibration: 'Calibração', awaiting_batch: 'Próximo lote', batch: 'Aguardando o agente', complete: 'Escopo concluído', cancelled: 'Tarefa cancelada' };
-const decisions = { accepted: 'Aceita', corrected: 'Corrigida', rejected: 'Rejeitada', absent: 'Alvo ausente', manual: 'Exemplo manual' };
-const button = (action, label, extra = '') => `<button type="button" class="button" ${action === 'remove-box' ? '' : `id="assistant-${action}"`} data-assistant="${action}" ${extra}>${label}</button>`;
+const text = (value, max = 200) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 const strict = (args, keys) => check(args && typeof args === 'object' && !Array.isArray(args)
   && Object.keys(args).every(key => keys.includes(key)), 'Argumentos inválidos.');
+const canonical = value => JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+const button = (action, label) => `<button type="button" class="button" id="assistant-${action}" data-assistant="${action}">${label}</button>`;
 
 export function createAssistantUI(editor) {
-  let config = null;
-  let connectedProject = null;
-  let authorizedTask = null;
-  let epoch = 0;
-  let working = false;
-  let connecting = false;
-  let error = '';
-  let reviewImage = null;
-  const drafts = new Map();
-  let manualDraft = null;
-  let draftTimer;
-  let draftChain = Promise.resolve();
+  let config = null, connectedProject = null, authorizedTask = null;
+  let epoch = 0, working = false, connecting = false, error = '';
+  let resetCompleted = false;
+  const confirmations = new Map();
   const panel = document.createElement('dialog');
-  panel.id = 'assistant-dialog';
-  panel.className = 'assistant-panel';
+  panel.id = 'assistant-dialog'; panel.className = 'assistant-panel';
   panel.setAttribute('aria-labelledby', 'assistant-title');
   document.body.append(panel);
   const state = () => editor.get().assistant;
-  const frame = () => state().pending?.frames.find(item => item.imageId === reviewImage) || state().pending?.frames[0];
-  const store = (transform, undo = false) => editor.commit(transform, undo);
-  const save = transform => store((project, memory) => ({ project, assistant: transform(memory, project) }));
 
   function card() {
-    const memory = state();
-    return `<div class="agent-card-heading">Assistente MCP</div><p>${memory.pending ? 'Sugestões prontas para revisar.' : memory.plan ? 'Plano aguardando sua autorização.' : config ? phases[memory.task?.phase] || 'Conexão habilitada para seu agente.' : 'Conecte seu agente e ensine o que procurar.'}</p>${button('open', 'Abrir assistente')}`;
+    return `<div class="agent-card-heading">Agente externo</div><p>${config ? 'Continue a conversa no seu chat.' : 'Conecte seu chat pelo MCP.'}</p>${button('open', 'Conexão MCP')}`;
   }
 
-  function refresh(fallbackFocus = null) {
-    const focused = document.activeElement === document.body && fallbackFocus ? fallbackFocus : document.activeElement;
-    const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd] : null;
+  function refresh() {
+    const focused = document.activeElement;
     const cardElement = document.querySelector('.agent-card');
     if (cardElement) cardElement.innerHTML = card();
     if (!panel.open) { if (focused?.id === 'assistant-open') document.getElementById('assistant-open')?.focus(); return; }
-    const focusId = panel.contains(focused) || focused === fallbackFocus ? focused?.id : null;
-    const scroll = panel.scrollTop;
-    const detailsState = new Map([...panel.querySelectorAll('details[id]')].map(element => [element.id, element.open]));
-    const { project } = editor.get();
-    const memory = state();
-    const task = memory.task;
-    const pending = memory.pending;
-    const stale = !examplesCurrent(project, memory);
-    const activeFrame = frame();
-    const currentDraft = activeFrame && (drafts.get(activeFrame.imageId)?.value || activeFrame.draft || activeFrame.review);
-    const image = project.images.find(item => item.id === activeFrame?.imageId);
-    const visibleIds = new Set(memory.completed.slice(memory.historyClearedCount || 0));
-    const history = memory.feedback.filter(item => visibleIds.has(item.imageId));
-    panel.innerHTML = `<header class="assistant-heading"><div class="dialog-heading"><h2 id="assistant-title" tabindex="-1">Assistente</h2>${button('close', 'Fechar')}</div>
-      <p id="assistant-status" role="status" aria-live="polite">${working ? 'Salvando…' : config ? 'MCP habilitado neste projeto' : 'MCP desabilitado'}</p></header>
+    const focusId = panel.contains(focused) ? focused.id : null;
+    panel.innerHTML = `<header class="assistant-heading"><div class="dialog-heading"><h2 id="assistant-title" tabindex="-1">Conexão MCP</h2>${button('close', 'Fechar')}</div><p id="assistant-status" role="status">${working ? 'Aguarde…' : config ? resetCompleted ? 'Conexão resetada. Copie a configuração e retome no chat.' : 'MCP habilitado neste projeto' : 'MCP desabilitado'}</p></header>
       <p class="field-error" role="alert" ${error ? '' : 'hidden'}>${escape(error)}</p>
-      ${!window.anointAgent ? '<p>Abra o aplicativo desktop para usar o MCP.</p>' : !config ? `<section class="assistant-connect"><h3>Conecte seu agente</h3><p>Ele terá acesso a nomes, classes e anotações. Você autoriza as imagens antes de compartilhá-las.</p>${button('connect', 'Habilitar MCP')}</section>` : !task && !memory.plan ? '<section><h3>Pronto para começar</h3><p>Peça ao seu agente, no chat externo, para criar um plano.</p></section>' : ''}
-      ${memory.plan ? `<section><h3>Autorizar plano</h3><p class="assistant-target">${escape(memory.plan.description)}</p><div class="assistant-facts"><span>${escape(project.labels.find(item => item.id === memory.plan.labelId)?.name || 'Classe removida')}</span><span>${memory.plan.calibrationCount} de calibração</span><span>Lotes de ${memory.plan.batchSize}</span></div><details id="assistant-plan-scope"><summary>${memory.plan.imageIds.length} imagens no escopo</summary><ol>${memory.plan.imageIds.map(id => `<li>${escape(project.images.find(item => item.id === id)?.name || 'Imagem removida')}</li>`).join('')}</ol></details><p>Estas imagens poderão ser enviadas ao provedor do agente, inclusive na nuvem.</p>${task ? '<p class="field-error">Autorizar substitui a tarefa e os exemplos anteriores.</p>' : ''}<div class="assistant-actions">${button('approve-plan', 'Autorizar plano', config ? '' : 'disabled')}${button('discard-plan', 'Recusar')}</div></section>` : ''}
-      ${task && !memory.plan ? `<section><div class="assistant-section-heading"><h3>${pending ? 'Revisar sugestões' : escape(phases[task.phase])}</h3>${!['complete', 'cancelled'].includes(task.phase) ? button('cancel', 'Cancelar tarefa') : ''}</div><p class="assistant-target">${escape(task.description)}</p><p class="assistant-meta">${memory.completed.length} de ${task.imageIds.length} imagens revisadas</p><progress class="project-progress" value="${memory.completed.length}" max="${task.imageIds.length}" aria-label="Imagens revisadas"></progress>
-        ${stale ? '<p class="field-error" role="alert">Um exemplo de calibração foi alterado. Cancele e peça um novo plano para recalibrar; o agente não receberá exemplos antigos como válidos.</p>' : ''}
-        ${config && authorizedTask !== task.id && !['complete', 'cancelled'].includes(task.phase) ? `<p>Revise o escopo salvo para retomar o compartilhamento.</p><details id="assistant-saved-scope"><summary>${task.imageIds.length} imagens autorizadas anteriormente</summary><ol>${task.imageIds.map(id => `<li>${escape(project.images.find(item => item.id === id)?.name || 'Removida')}</li>`).join('')}</ol></details><p>Estas imagens poderão ser enviadas ao provedor do agente, inclusive na nuvem.</p>${button('resume', 'Retomar e autorizar')}` : ''}
-        ${task.phase === 'awaiting_batch' ? button('authorize', `Autorizar próximas ${Math.min(task.batchSize, task.imageIds.length - memory.completed.length)} imagens`, config ? '' : 'disabled') : ''}
-        ${task.phase === 'calibration' && !pending ? `<p>Amostra ${memory.completed.length + 1}/${task.calibrationCount} · ${escape(project.images.find(item => item.id === availableImages(memory)[0])?.name || 'Imagem indisponível')}</p>${button('show-next', 'Mostrar imagem')}<label class="field-label" for="assistant-manual-note">Orientação ao agente (opcional)</label><textarea id="assistant-manual-note" maxlength="2000" rows="2">${escape(manualDraft?.taskId === task.id ? manualDraft.value : task.manualNote || '')}</textarea><div class="assistant-actions">${button('manual', 'Usar minhas caixas')}${button('manual-absent', 'Alvo ausente')}</div>` : ''}</section>` : ''}
-      ${pending && !memory.plan ? `<section class="assistant-review-section">${pending.message ? `<p class="assistant-message">${escape(pending.message)}</p>` : ''}
-        <label class="field-label" for="assistant-frame">Imagem do lote</label><select id="assistant-frame">${pending.frames.map(item => `<option value="${escape(item.imageId)}" ${item.imageId === activeFrame.imageId ? 'selected' : ''}>${escape(project.images.find(image => image.id === item.imageId)?.name || 'Removida')}${item.review ? ' · revisada' : ' · pendente'}</option>`).join('')}</select>
-        <div class="assistant-section-heading">${button('show-frame', 'Mostrar imagem')}<span class="assistant-meta">${activeFrame.boxes.length} sugestões · ${image ? `${image.width} × ${image.height} px` : 'Imagem removida'}</span></div>
-        <form id="assistant-review"><label class="field-label" for="assistant-decision">Sua decisão</label><select id="assistant-decision" required><option value="">Escolha uma decisão</option>${[['accepted', 'Aceitar caixas'], ['corrected', 'Corrigir ou adicionar caixas'], ['rejected', 'Rejeitar (explicar o erro)'], ['absent', 'Confirmar que o alvo não aparece']].map(([value, label]) => `<option value="${value}" ${currentDraft?.decision === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
-        <details id="assistant-geometry" ${currentDraft?.decision === 'corrected' ? 'open' : ''}><summary>Corrigir caixas</summary><p class="assistant-meta">Medidas em pixels da imagem. Confira sobreposições com caixas existentes.</p><div id="assistant-boxes">${(currentDraft?.boxes || activeFrame.boxes).map(boxRow).join('')}</div>${button('add-box', 'Adicionar caixa')}</details>
-        <label class="field-label" for="assistant-note">Comentário (obrigatório ao rejeitar)</label><textarea id="assistant-note" maxlength="2000" rows="2">${escape(currentDraft?.note || '')}</textarea><button id="assistant-save-decision" type="submit" class="button">Salvar decisão</button></form>
-        <div class="assistant-apply"><p>${pending.frames.filter(item => item.review && !drafts.has(item.imageId)).length} de ${pending.frames.length} imagens com decisão.</p><p class="assistant-meta">Só caixas aprovadas serão adicionadas. As existentes serão preservadas.</p>${button('apply', 'Aplicar caixas aprovadas', pending.frames.every(item => item.review && !drafts.has(item.imageId)) ? '' : 'disabled')}${button('discard', 'Descartar lote')}
-        </div>
-      </section>` : ''}
-      <footer class="assistant-options">
-      ${config ? `<details id="assistant-connection"><summary>Conexão MCP</summary><p>Use Node.js 20+. Cole esta configuração no cliente; ela contém uma chave temporária privada.</p><textarea id="assistant-config" readonly rows="7" aria-label="Configuração MCP">${escape(JSON.stringify(config, null, 2))}</textarea><div class="assistant-actions">${button('copy', 'Copiar configuração')}${button('disconnect', 'Desconectar')}</div></details>` : ''}
-      <details id="assistant-history"><summary id="assistant-history-title">Histórico (${history.length})</summary><div class="assistant-section-heading"><span class="assistant-meta">A calibração e as caixas são preservadas.</span>${button('clear-history', 'Limpar histórico', history.length ? '' : 'disabled')}</div>${history.length ? `<ul class="assistant-history-list">${history.map(item => `<li><strong>${escape(project.images.find(image => image.id === item.imageId)?.name || item.imageId)}</strong><span>${decisions[item.decision]} · ${item.final.length} caixas</span>${item.note ? `<p>${escape(item.note)}</p>` : ''}</li>`).join('')}</ul>` : '<p class="assistant-meta">Nenhuma mensagem no histórico.</p>'}</details>
-      <details id="assistant-help"><summary>Como funciona</summary><p>Continue no chat do seu agente. Ele consulta o Anoint pelo MCP; o Anoint não inicia mensagens no chat externo.</p><p>A calibração fornece exemplos e correções como contexto, sem treinar os pesos do modelo.</p><p>Sugestões pontilhadas só viram anotações após sua aprovação. Editou a imagem depois da geração? Descarte o lote e peça outro.</p><p>Limpar histórico oculta a lista neste painel. Os exemplos continuam disponíveis ao agente; o chat externo não é alterado.</p></details></footer>`;
-    for (const element of panel.querySelectorAll('details[id]')) {
-      element.querySelector('summary').id = `${element.id}-title`;
-      if (detailsState.has(element.id)) element.open = detailsState.get(element.id);
-    }
-    for (const action of ['connect', 'approve-plan', 'authorize', 'apply']) panel.querySelector(`[data-assistant="${action}"]`)?.classList.add('primary');
-    updateDecisionFields();
-    if (working) panel.querySelectorAll('button,input,select,textarea').forEach(element => { element.disabled = true; });
-    panel.scrollTop = scroll;
-    if (focusId) {
-      const restored = document.getElementById(focusId) || panel.querySelector('h2');
-      restored?.focus({ preventScroll: true });
-      if (selection) restored?.setSelectionRange?.(...selection);
-    }
+      ${!window.anointAgent ? '<p>Abra o aplicativo desktop para usar o MCP.</p>' : !config ? `<section><p>Seu agente terá acesso a nomes, classes e anotações e poderá criar e renomear classes. Autorizações de imagens, revisão e remoção são confirmadas no chat.</p>${button('connect', 'Habilitar MCP')}</section>`
+        : `<section><p>Copie a configuração para seu cliente. Depois, faça tudo no chat; volte ao editor apenas para ajustes manuais.</p><textarea id="assistant-config" readonly rows="8" aria-label="Configuração MCP">${escape(JSON.stringify(config, null, 2))}</textarea><p class="assistant-meta">Esta configuração contém uma chave privada temporária. Resetar revoga a configuração anterior.</p><div class="assistant-actions">${button('copy', 'Copiar configuração')}${button('reset', 'Resetar conexão MCP')}${button('disconnect', 'Desconectar')}</div></section>`}`;
+    panel.querySelector('[data-assistant=connect]')?.classList.add('primary');
+    if (working) panel.querySelectorAll('button').forEach(element => { element.disabled = true; });
+    if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
   }
 
-  function boxRow(box, index) {
-    return `<fieldset class="assistant-box" data-index="${index}"><legend>Sugestão ${index + 1}</legend>${['x', 'y', 'width', 'height'].map(key => `<label>${{ x: 'X', y: 'Y', width: 'Largura', height: 'Altura' }[key]}<input id="assistant-box-${index}-${key}" data-coordinate="${key}" type="number" min="${key === 'x' || key === 'y' ? 0 : .000001}" step="any" value="${escape(box[key])}" required /></label>`).join('')}${button('remove-box', 'Remover sugestão', `data-index="${index}"`)}</fieldset>`;
-  }
-
-  function updateDecisionFields() {
-    const decision = panel.querySelector('#assistant-decision')?.value;
-    for (const input of panel.querySelectorAll('[data-coordinate]')) {
-      input.disabled = decision !== 'corrected'; input.required = decision === 'corrected';
-    }
-    const note = panel.querySelector('#assistant-note');
-    if (note) note.required = decision === 'rejected';
-  }
-
-  const draft = () => ({ decision: panel.querySelector('#assistant-decision').value, note: panel.querySelector('#assistant-note').value,
-    boxes: [...panel.querySelectorAll('.assistant-box')].map(row => Object.fromEntries([...row.querySelectorAll('[data-coordinate]')].map(input => [input.dataset.coordinate, input.value]))) });
-
-  function captureDraft() {
-    const active = frame();
-    if (!active || !panel.querySelector('#assistant-review')) return;
-    drafts.set(active.imageId, { requestId: state().pending.requestId, value: draft() });
-    const apply = panel.querySelector('[data-assistant=apply]');
-    if (apply) apply.disabled = true;
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => { void flush().catch(showDraftError); }, 200);
-  }
-  function showDraftError(failure) {
-    error = failure.message;
-    const target = panel.querySelector('.field-error');
-    if (target) { target.hidden = false; target.textContent = error; }
-  }
-  function flush() {
-    clearTimeout(draftTimer);
-    const pendingDrafts = [...drafts];
-    const note = manualDraft;
-    draftChain = draftChain.catch(() => {}).then(async () => {
-      if (note) {
-        await save(memory => {
-          if (memory.task?.id === note.taskId) memory.task.manualNote = note.value;
-          return memory;
-        });
-        if (manualDraft === note) manualDraft = null;
-      }
-      for (const [imageId, item] of pendingDrafts) {
-        await save(memory => memory.pending?.requestId === item.requestId ? saveDraft(memory, imageId, item.value) : memory);
-        if (drafts.get(imageId) === item) drafts.delete(imageId);
-      }
-    });
-    return draftChain;
-  }
-
-  async function act(operation) {
-    if (working) return;
-    const focused = panel.contains(document.activeElement) ? document.activeElement : null;
-    working = true;
-    error = '';
-    const status = panel.querySelector('#assistant-status');
-    if (status) status.textContent = 'Salvando…';
-    panel.querySelectorAll('button').forEach(element => { element.disabled = true; });
-    try { await flush(); check(!editor.get().busy, 'Editor ocupado. Tente novamente.'); await operation(); }
-    catch (failure) { error = failure.message; }
-    finally { working = false; refresh(focused); editor.overlay(); }
-  }
-
-  async function disconnect() {
-    await flush();
+  async function disconnect(closePanel = true) {
     const enabled = config || connecting;
-    epoch += 1;
-    config = null;
-    connectedProject = null;
-    authorizedTask = null;
+    epoch += 1; config = null; connectedProject = null; authorizedTask = null;
+    resetCompleted = false;
+    confirmations.clear();
+    if (!closePanel) refresh();
     if (enabled) await window.anointAgent?.disconnect();
-    panel.close();
+    if (closePanel) panel.close();
   }
 
   document.addEventListener('click', event => {
-    const element = event.target.closest('[data-assistant]');
-    if (!element) return;
-    const action = element.dataset.assistant;
+    const action = event.target.closest('[data-assistant]')?.dataset.assistant;
+    if (!action) return;
     if (action === 'open') { panel.show(); refresh(); panel.querySelector('h2').focus(); return; }
-    if (action === 'close') { void act(async () => { panel.close(); document.querySelector('[data-assistant=open]')?.focus(); }); return; }
+    if (action === 'close') { panel.close(); document.getElementById('assistant-open')?.focus(); return; }
     if (working || editor.get().busy) return;
-    if (action === 'add-box') {
-      const rows = panel.querySelector('#assistant-boxes');
-      const nextIndex = Math.max(-1, ...[...rows.children].map(row => Number(row.dataset.index))) + 1;
-      rows.insertAdjacentHTML('beforeend', boxRow({ x: 0, y: 0, width: 1, height: 1 }, nextIndex));
-      panel.querySelector('#assistant-decision').value = 'corrected';
-      updateDecisionFields();
-      rows.lastElementChild.querySelector('input').focus();
-      captureDraft();
-      return;
-    }
-    if (action === 'remove-box') {
-      element.closest('fieldset').remove();
-      const decision = panel.querySelector('#assistant-decision');
-      decision.value = 'corrected'; updateDecisionFields(); decision.focus(); captureDraft(); return;
-    }
-    void act(async () => {
-      if (action === 'connect') {
-        const projectId = editor.get().projectId;
-        const startedAt = epoch;
-        check(projectId, 'Abra um projeto primeiro.');
-        connecting = true;
-        try {
+    const focusId = document.activeElement?.id;
+    void (async () => {
+      working = true; error = ''; refresh();
+      try {
+        if (action === 'connect' || action === 'reset') {
+          const projectId = editor.get().projectId;
+          check(projectId, 'Abra um projeto primeiro.');
+          const closing = action === 'reset' ? disconnect(false) : null;
+          const startedAt = epoch;
+          if (closing) await closing;
+          check(epoch === startedAt && editor.get().projectId === projectId, 'Projeto alterado ou conexão encerrada. Conecte novamente.');
+          connecting = true;
           const candidate = await window.anointAgent.connect();
           if (epoch !== startedAt || editor.get().projectId !== projectId) {
-            await window.anointAgent.disconnect(); throw new Error('Projeto alterado durante a conexão. Conecte novamente.');
+            await window.anointAgent.disconnect(); throw new Error('Projeto alterado. Conecte novamente.');
           }
           config = candidate; connectedProject = projectId; epoch += 1;
-        } finally { connecting = false; }
-      } else if (action === 'disconnect') await disconnect();
-      else if (action === 'copy') await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-      else if (action === 'clear-history') {
-        await save(memory => ({ ...memory, historyClearedCount: memory.completed.length }));
-        panel.querySelector('#assistant-history-title')?.focus();
+          resetCompleted = action === 'reset';
+        } else if (action === 'disconnect') await disconnect();
+        else if (action === 'copy') await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+      } catch (failure) { error = failure.message; }
+      finally {
+        connecting = false; working = false; refresh();
+        if (panel.open && focusId) (document.getElementById(focusId) || panel.querySelector('[data-assistant=connect]') || panel.querySelector('h2'))?.focus({ preventScroll: true });
       }
-      else if (action === 'approve-plan') { check(config, 'Conecte novamente.'); await save((memory, project) => approveTask(memory, project)); authorizedTask = state().task.id; }
-      else if (action === 'resume') {
-        check(config, 'Conecte novamente.');
-        await save((memory, project) => {
-          check(project.labels.some(label => label.id === memory.task.labelId) && memory.task.imageIds.every(id => project.images.some(image => image.id === id)), 'O escopo foi alterado. Cancele e peça um novo plano.');
-          memory.task.id = crypto.randomUUID();
-          if (memory.pending) memory.pending.taskId = memory.task.id;
-          return memory;
-        });
-        authorizedTask = state().task.id;
-      }
-      else if (action === 'discard-plan') await save(memory => ({ ...memory, plan: null }));
-      else if (action === 'cancel') await save(cancelTask);
-      else if (action === 'authorize') { check(config, 'Conecte novamente.'); await save(authorizeBatch); }
-      else if (action === 'show-next') { editor.select(availableImages(state())[0]); panel.close(); }
-      else if (action === 'show-frame') { editor.select(frame().imageId); panel.close(); }
-      else if (action === 'manual' || action === 'manual-absent') {
-        const note = panel.querySelector('#assistant-manual-note').value;
-        await store((project, memory) => ({ project, assistant: useManualExample(project, memory, availableImages(memory)[0], note, action === 'manual-absent') }), true);
-      } else if (action === 'discard') await save(discardProposal);
-      else if (action === 'apply') {
-        const frames = state().pending.frames;
-        check(frames.every(item => item.review), 'Salve uma decisão para cada imagem.');
-        const total = frames.reduce((sum, item) => sum + (item.review.decision === 'accepted' ? item.boxes.length : item.review.decision === 'corrected' ? item.review.boxes.length : 0), 0);
-        if (confirm(`Aplicar ${total} caixa(s) aprovada(s) em ${frames.length} imagem(ns) e salvar o feedback? As caixas existentes serão preservadas. Você poderá desfazer esta operação.`)) {
-          await store((project, memory) => reviewProposal(project, memory, memory.pending.frames.map(item => ({ imageId: item.imageId, ...item.review }))), true);
-        }
-      }
-    });
-  });
-  panel.addEventListener('change', event => {
-    if (event.target.id === 'assistant-frame') { reviewImage = event.target.value; refresh(); }
-    else if (event.target.closest('#assistant-review')) {
-      if (event.target.id === 'assistant-decision' && event.target.value === 'corrected') panel.querySelector('#assistant-geometry').open = true;
-      updateDecisionFields();
-      captureDraft();
-    }
-  });
-  panel.addEventListener('invalid', event => {
-    if (event.target.closest('#assistant-geometry')) panel.querySelector('#assistant-geometry').open = true;
-  }, true);
-  panel.addEventListener('input', event => {
-    if (event.target.id === 'assistant-manual-note') {
-      manualDraft = { taskId: state().task.id, value: event.target.value };
-      clearTimeout(draftTimer);
-      draftTimer = setTimeout(() => { void flush().catch(showDraftError); }, 200);
-      return;
-    }
-    if (!event.target.closest('#assistant-review')) return;
-    if (event.target.dataset.coordinate) panel.querySelector('#assistant-decision').value = 'corrected';
-    captureDraft();
-  });
-  panel.addEventListener('submit', event => {
-    if (event.target.id !== 'assistant-review') return;
-    event.preventDefault();
-    const decision = draft();
-    decision.boxes = decision.decision === 'corrected'
-      ? decision.boxes.map(box => Object.fromEntries(Object.entries(box).map(([key, value]) => [key, value === '' ? NaN : Number(value)])))
-      : decision.decision === 'accepted' ? frame().boxes : [];
-    void act(() => save(memory => saveDecision(memory, frame().imageId, decision)));
+    })();
   });
   panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); void act(async () => { panel.close(); document.querySelector('[data-assistant=open]')?.focus(); }); }
+    if (event.key === 'Escape') { event.preventDefault(); panel.close(); document.getElementById('assistant-open')?.focus(); }
   });
 
-  async function handleTool(name, args) {
-    check(config && connectedProject && connectedProject === editor.get().projectId, 'APP_UNAVAILABLE: habilite a conexão no projeto aberto.');
-    check(!working && !editor.get().busy, 'Editor ocupado. Tente novamente.');
-    const currentEpoch = epoch;
-    const current = editor.get();
-    const { project, assistant: memory } = current;
+  function checkpoint(key, current, message, extra = false, phrase = 'CONFIRMAR') {
+    for (const [id, item] of confirmations) if (item.expires < Date.now()) confirmations.delete(id);
+    const existing = [...confirmations.values()].find(item => !item.result && item.key === key && item.revision === current.revision && item.extra === extra);
+    if (existing) return existing.response;
+    check([...confirmations.values()].filter(item => !item.result).length < 64, 'Muitas confirmações pendentes. Conclua as solicitações abertas ou aguarde sua expiração.');
+    const id = crypto.randomUUID();
+    const response = { status: 'confirmation_required', confirmation: { id, message, phrase, extra } };
+    confirmations.set(id, { key, revision: current.revision, epoch, expires: Date.now() + 15 * 60 * 1000, extra, response });
+    return response;
+  }
+
+  async function handleTool(name, input) {
+    check(config && connectedProject === editor.get().projectId, 'APP_UNAVAILABLE: habilite a conexão no projeto aberto.');
+    check(!working && !editor.get().busy, 'Editor ocupado. Termine o ajuste manual e tente novamente.');
+    const current = editor.get(), { project, assistant: memory } = current, currentEpoch = epoch;
+    const stillCurrent = () => check(epoch === currentEpoch && connectedProject === editor.get().projectId && current.revision === editor.get().revision,
+      'Conflito: projeto alterado ou conexão encerrada. Leia o contexto e confirme novamente.');
     const metadata = async image => ({ id: image.id, name: image.name, width: image.width, height: image.height, reviewed: image.reviewed,
       revision: await imageRevision(project, image), annotations: image.annotations });
-    const stillCurrent = () => check(epoch === currentEpoch && connectedProject === editor.get().projectId && editor.get().revision === current.revision, 'Conflito: projeto alterado ou conexão encerrada. Leia o contexto novamente.');
     if (name === 'anoint_get_context') {
-      strict(args, []);
-      const { manualNote, ...agentTask } = memory.task || {};
-      const agentMemory = { ...memory, task: memory.task ? agentTask : null,
-        feedback: memory.feedback.map(({ exampleState, ...feedback }) => feedback),
-        pending: memory.pending ? { ...memory.pending, frames: memory.pending.frames.map(({ review, draft, ...proposal }) => proposal) } : null,
-      };
-      const result = { projectId: current.projectId, name: current.name, labels: project.labels, imageCount: project.images.length,
-        coordinates: 'natural-pixels', memory: agentMemory, examplesStale: !examplesCurrent(project, memory), availableImageIds: authorizedTask === memory.task?.id && examplesCurrent(project, memory) ? availableImages(memory) : [],
-        instructions: 'Converse com o usuário no chat externo. Proponha um plano com classe existente e IDs de imagens; aguarde autorização no Anoint. Na calibração analise uma imagem por vez; use os exemplos/feedback. Leia cada imagem e sua revisão antes de sugerir. Não interprete caixas vazias ou rejeição como ausência confirmada. Somente o humano autoriza geração e aplica sugestões. Não há ferramenta para aprovar. Após cada rodada consulte o contexto. Calibração é contexto, não treino de pesos.' };
-      return result;
+      strict(input, []);
+      const shared = authorizedTask === memory.task?.id;
+      const { manualNote, ...task } = memory.task || {};
+      const visibleIds = new Set(memory.completed.slice(memory.historyClearedCount || 0));
+      const feedback = memory.feedback.map(({ exampleState, ...item }) => item);
+      return { projectId: current.projectId, name: current.name, labels: project.labels, imageCount: project.images.length,
+        activeImageId: current.activeImageId, activeLabelId: current.activeLabelId, coordinates: 'natural-pixels',
+        memory: { ...memory, task: memory.task ? { ...task, ...(shared && manualNote ? { manualNote } : {}) } : null, feedback,
+          pending: memory.pending ? { ...memory.pending, frames: memory.pending.frames.map(({ review, draft, ...frame }) => shared ? { ...frame, review, draft } : frame) } : null },
+        history: feedback.filter(item => visibleIds.has(item.imageId)), examplesStale: !examplesCurrent(project, memory),
+        availableImageIds: shared && examplesCurrent(project, memory) ? availableImages(memory) : [],
+        instructions: 'TODA conversa, autorização e revisão acontece aqui no chat. Não mande o usuário abrir o painel do Anoint. Crie/renomeie classes se necessário; proponha plano e use control_task plan para pedir autorização. Mostre alvo, classe, imagens, calibração, lote e acesso pelo provedor/nuvem. batchSize define as imagens por rodada também na calibração (até 100). Leia todas as availableImageIds e envie suas caixas juntas em submit_proposal. Mostre as prévias para o usuário avaliar quais ficaram boas ou ruins e reúna decisões por imagem numa única chamada review, com uma confirmação para o conjunto, sem exigir uma por imagem. Confirmações nativas são apresentadas pelo cliente; se receber confirmation_required, pergunte ao usuário e só repita com confirmation após resposta explícita. Nunca invente aprovação. Use get_image view=review para mostrar as caixas no chat antes de avaliar. review aplica somente as decisões confirmadas; lote seguinte exige control_task batch separado. Este é o correto após edição manual: leia a imagem atual e confirme manual_example, ou review manual se houver proposta pendente. Não duplique caixas manuais. Ausência é explícita; rejeição não prova ausência. Retome tarefas e rascunhos salvos por control_task resume. Remover classe exige duas confirmações, a segunda com a frase exata. Calibração usa contexto, não treina pesos.' };
     }
     if (name === 'anoint_list_images') {
-      strict(args, ['offset', 'limit']);
-      const offset = args.offset ?? 0, limit = args.limit ?? 20;
+      strict(input, ['offset', 'limit']);
+      const offset = input.offset ?? 0, limit = input.limit ?? 20;
       check(Number.isSafeInteger(offset) && offset >= 0 && Number.isInteger(limit) && limit >= 1 && limit <= 100, 'Paginação inválida.');
       const images = await Promise.all(project.images.slice(offset, offset + limit).map(metadata));
       stillCurrent(); return { images, total: project.images.length, nextOffset: offset + images.length < project.images.length ? offset + images.length : null };
     }
     if (name === 'anoint_get_image') {
-      strict(args, ['imageId']);
-      check(authorizedTask === memory.task?.id, 'Aguarde autorização do escopo no Anoint.');
-      check(examplesCurrent(project, memory), 'Exemplos alterados. Peça ao usuário para recalibrar com um novo plano.');
-      const allowed = new Set([...availableImages(memory), ...memory.feedback.filter(item => item.phase === 'calibration').map(item => item.imageId)]);
-      check(allowed.has(args.imageId), 'Imagem fora do escopo autorizado desta rodada.');
-      const image = project.images.find(item => item.id === args.imageId);
-      check(image && project.labels.some(label => label.id === memory.task?.labelId), 'Classe ou imagem removida. Cancele e proponha outra tarefa.');
+      strict(input, ['imageId', 'view']);
+      check(input.view === undefined || ['source', 'review'].includes(input.view), 'Visualização inválida.');
+      check(authorizedTask === memory.task?.id, 'Autorize ou retome o escopo pelo chat.');
+      const allowed = new Set([...memory.feedback.map(item => item.imageId), ...(memory.pending?.frames || []).map(item => item.imageId),
+        ...(examplesCurrent(project, memory) ? availableImages(memory) : [])]);
+      check(allowed.has(input.imageId), 'Imagem fora do escopo autorizado desta rodada.');
+      const image = project.images.find(item => item.id === input.imageId);
+      check(image && project.labels.some(label => label.id === memory.task.labelId), 'Classe ou imagem removida. Proponha outra tarefa.');
+      const proposal = memory.pending?.frames.find(frame => frame.imageId === image.id);
+      if (input.view === 'review') check(proposal, 'Esta imagem não tem sugestões pendentes.');
       const blob = await imageBlob(image.src);
-      check(blob.type !== 'image/gif' && !/\.gif$/i.test(image.name), 'GIF não é suportado pelo assistente; importe um frame estático.');
+      check(blob.type !== 'image/gif' && !/\.gif$/i.test(image.name), 'GIF não é suportado; importe um frame estático.');
       const url = URL.createObjectURL(blob);
       try {
         const decoded = new Image(); decoded.src = url; await decoded.decode();
@@ -320,44 +149,138 @@ export function createAssistantUI(editor) {
         const ratio = Math.min(1, 4096 / Math.max(image.width, image.height));
         const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * ratio)); canvas.height = Math.max(1, Math.round(image.height * ratio));
         const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(decoded, 0, 0, canvas.width, canvas.height);
+        if (input.view === 'review') {
+          const draw = (boxes, color, dashed, prefix) => boxes.forEach((box, index) => {
+            const x = box.x * canvas.width / image.width, y = box.y * canvas.height / image.height;
+            context.strokeStyle = color; context.lineWidth = 2; context.setLineDash(dashed ? [7, 5] : []);
+            context.strokeRect(x, y, box.width * canvas.width / image.width, box.height * canvas.height / image.height);
+            context.font = '14px sans-serif'; context.fillStyle = color; context.fillText(`${prefix} ${index + 1}`, x + 2, Math.max(14, y - 3));
+          });
+          draw(image.annotations, '#166534', false, 'Anotação'); draw(proposal.boxes, '#b21acb', true, 'Sugestão');
+        }
         const data = canvas.toDataURL('image/jpeg', .9).split(',')[1];
         check(data.length <= 12 * 1024 * 1024, 'Imagem muito grande para o MCP; use um frame menor.');
-        const info = { ...await metadata(image), sentWidth: canvas.width, sentHeight: canvas.height, coordinates: 'natural-pixels', scaleX: image.width / canvas.width, scaleY: image.height / canvas.height,
-          note: 'Multiplique medidas do preview pelas escalas para enviar pixels naturais. Objetos pequenos podem desaparecer na redução; não assuma ausência.' };
-        stillCurrent();
-        return { content: [{ type: 'image', data, mimeType: 'image/jpeg' }, { type: 'text', text: JSON.stringify(info) }], structuredContent: info };
+        const info = { ...await metadata(image), sentWidth: canvas.width, sentHeight: canvas.height, coordinates: 'natural-pixels', view: input.view || 'source',
+          proposalId: proposal ? memory.pending.requestId : null, scaleX: image.width / canvas.width, scaleY: image.height / canvas.height,
+          note: 'Sugestões pontilhadas são provisórias; anotações verdes são finais. Converta medidas pelas escalas. Objetos pequenos podem sumir na redução; não assuma ausência.' };
+        stillCurrent(); return { content: [{ type: 'image', data, mimeType: 'image/jpeg' }, { type: 'text', text: JSON.stringify(info) }], structuredContent: info };
       } finally { URL.revokeObjectURL(url); }
     }
-    check(['anoint_propose_task', 'anoint_submit_proposal'].includes(name), 'Ferramenta não permitida.');
-    check(!(manualDraft?.value || memory.task?.manualNote || '').trim(), 'O usuário está preparando um exemplo manual. Aguarde a confirmação ou o descarte desse comentário no Anoint.');
-    if (name === 'anoint_submit_proposal') {
-      check(authorizedTask === memory.task?.id, 'Aguarde autorização do escopo no Anoint.');
-      check(examplesCurrent(project, memory), 'Exemplos alterados. Peça ao usuário para recalibrar com um novo plano.');
+    const schemas = {
+      anoint_propose_task: ['requestId', 'description', 'labelId', 'calibrationCount', 'batchSize', 'imageIds'],
+      anoint_submit_proposal: ['requestId', 'taskId', 'frames', 'message'],
+      anoint_control_task: ['action', 'taskId', 'requestId', 'confirmation'],
+      anoint_review: ['taskId', 'requestId', 'decisions', 'confirmation'],
+      anoint_manual_example: ['taskId', 'imageId', 'revision', 'note', 'absent', 'confirmation'],
+      anoint_create_class: ['id', 'name', 'color'], anoint_update_class: ['id', 'name'],
+      anoint_remove_class: ['id', 'replacementId', 'confirmation'],
+    };
+    check(schemas[name], 'Ferramenta não permitida.'); strict(input, schemas[name]);
+    const { confirmation, ...args } = input;
+    const key = canonical([name, args]);
+    let ticket;
+    if (confirmation !== undefined) {
+      strict(confirmation, ['id', 'answer']);
+      ticket = confirmations.get(confirmation.id);
+      check(ticket && ticket.epoch === epoch && ticket.expires >= Date.now() && ticket.key === key, 'Confirmação inválida, expirada ou de outra ação.');
+      check(confirmation.answer === ticket.response.confirmation.phrase, 'A confirmação precisa corresponder à frase solicitada.');
+      if (ticket.result) return ticket.result;
+      check(ticket.revision === current.revision, 'Conflito: houve alteração depois do pedido. Leia o contexto e peça nova confirmação.');
     }
-    strict(args, name === 'anoint_propose_task' ? ['requestId', 'description', 'labelId', 'calibrationCount', 'batchSize', 'imageIds'] : ['requestId', 'taskId', 'frames', 'message']);
-    if (name === 'anoint_submit_proposal' && Array.isArray(args.frames)) for (const item of args.frames) {
-      strict(item, ['imageId', 'revision', 'boxes']);
-      if (Array.isArray(item.boxes)) for (const box of item.boxes) strict(box, ['x', 'y', 'width', 'height']);
+    let candidate = { project, assistant: memory }, message = '', undo = true, authorize = false;
+    const taskMatches = () => check(text(args.taskId) && args.taskId === memory.task?.id, 'Tarefa mudou. Leia o contexto novamente.');
+    const scopeText = ids => ids.slice(0, 12).map(id => project.images.find(image => image.id === id)?.name || id).join(', ')
+      + (ids.length > 12 ? ` e mais ${ids.length - 12} (lista completa no contexto)` : '');
+    if (name === 'anoint_propose_task') { candidate.assistant = proposeTask(memory, project, args); undo = false; }
+    else if (name === 'anoint_submit_proposal') {
+      taskMatches(); check(authorizedTask === memory.task.id && examplesCurrent(project, memory), 'Retome o escopo ou atualize os exemplos pelo chat.');
+      check(Array.isArray(args.frames), 'Imagens inválidas.');
+      for (const frame of args.frames) { strict(frame, ['imageId', 'revision', 'boxes']); check(Array.isArray(frame.boxes), 'Caixas inválidas.'); for (const box of frame.boxes) strict(box, ['x', 'y', 'width', 'height']); }
+      candidate.assistant = await submitProposal(memory, project, args); undo = false;
+    } else if (name === 'anoint_control_task') {
+      check(['plan', 'batch', 'resume', 'cancel', 'discard', 'clear_history'].includes(args.action), 'Ação de tarefa inválida.');
+      if (args.action === 'plan') {
+        check(text(args.requestId) && memory.plan?.requestId === args.requestId, 'Plano mudou. Leia o contexto.');
+        candidate.assistant = approveTask(memory, project); authorize = true;
+        message = `Autorizar plano no projeto ${current.name}: ${memory.plan.description}. Classe ${project.labels.find(label => label.id === memory.plan.labelId)?.name}; calibração ${memory.plan.calibrationCount} imagens; rodadas de até ${memory.plan.batchSize} imagens na calibração e nos lotes seguintes. Imagens: ${scopeText(memory.plan.imageIds)}. Poderão ser enviadas ao cliente/provedor do agente, inclusive na nuvem.${memory.task ? ' Substitui a tarefa anterior e seus exemplos.' : ''}`;
+      } else if (args.action === 'discard' && memory.plan && args.requestId === memory.plan.requestId) {
+        candidate.assistant = { ...memory, plan: null };
+      } else {
+        taskMatches();
+        if (args.action === 'batch') {
+          check(authorizedTask === memory.task.id && examplesCurrent(project, memory), 'Retome o escopo ou atualize os exemplos.');
+          candidate.assistant = authorizeBatch(memory);
+          message = `Gerar sugestões para o próximo lote: ${scopeText(availableImages(candidate.assistant))}. Esta autorização não aplica caixas.`;
+        } else if (args.action === 'resume') {
+          check(project.labels.some(label => label.id === memory.task.labelId) && memory.task.imageIds.every(id => project.images.some(image => image.id === id))
+            && memory.task.phase !== 'cancelled', 'Escopo removido ou tarefa cancelada. Proponha um novo plano.');
+          candidate.assistant = structuredClone(memory); candidate.assistant.task.id = crypto.randomUUID();
+          if (candidate.assistant.pending) candidate.assistant.pending.taskId = candidate.assistant.task.id;
+          authorize = true;
+          message = `Retomar ${current.name}: ${memory.task.description}. Compartilhar escopo ${scopeText(memory.task.imageIds)}, exemplos e rascunhos/decisões salvos com o cliente/provedor, inclusive na nuvem?`;
+        } else if (args.action === 'cancel') candidate.assistant = cancelTask(memory);
+        else if (args.action === 'discard') {
+          check(text(args.requestId) && args.requestId === memory.pending?.requestId, 'A proposta mudou. Leia o lote atual antes de descartar.');
+          candidate.assistant = discardProposal(memory);
+        }
+        else candidate.assistant = { ...memory, historyClearedCount: memory.completed.length };
+      }
+    } else if (name === 'anoint_review') {
+      taskMatches(); check(authorizedTask === memory.task.id && args.requestId === memory.pending?.requestId, 'Retome a tarefa e leia a proposta atual.');
+      check(examplesCurrent(project, memory), 'Um exemplo anterior foi alterado. Confirme o exemplo manual atual antes de revisar novas sugestões.');
+      check(Array.isArray(args.decisions), 'Decisões inválidas.');
+      for (const decision of args.decisions) {
+        strict(decision, ['imageId', 'decision', 'note', 'boxes', 'revision']);
+        if (decision.boxes !== undefined) { check(Array.isArray(decision.boxes), 'Caixas inválidas.'); for (const box of decision.boxes) strict(box, ['x', 'y', 'width', 'height']); }
+      }
+      candidate = await reviewProposal(project, memory, args.decisions.map(decision => ({ note: '', ...decision })));
+      message = `Confirmar revisão do lote ${args.requestId}, ${args.decisions.length} imagem(ns): ${args.decisions.slice(0, 12).map(item => `${scopeText([item.imageId])}: ${item.decision}`).join('; ')}. Adicionar ${candidate.added} caixa(s), preservar existentes e salvar o feedback?`;
+    } else if (name === 'anoint_manual_example') {
+      taskMatches(); check(authorizedTask === memory.task.id, 'Retome a tarefa pelo chat.');
+      candidate.assistant = await confirmManualExample(project, memory, args.imageId, args.revision, args.note ?? '', args.absent ?? false);
+      message = `Registrar ${scopeText([args.imageId])} como ${args.absent ? 'ausência confirmada' : 'exemplo correto com as caixas manuais atuais'}, sem duplicar anotações? Atualizar exemplo anterior invalida propostas pendentes.`;
+    } else if (name === 'anoint_create_class' || name === 'anoint_update_class') {
+      check(text(args.id) && text(args.name), 'ID ou nome de classe inválido.');
+      const nameValue = args.name.trim(), existing = project.labels.find(label => label.id === args.id);
+      check(!project.labels.some(label => label.id !== args.id && label.name.toLocaleLowerCase() === nameValue.toLocaleLowerCase()), 'Já existe uma classe com esse nome.');
+      if (name === 'anoint_create_class') {
+        check(!existing || (existing.name === nameValue && existing.color === args.color), 'ID de classe já usado.');
+        check(existing || project.labels.length < 100, 'O projeto suporta até 100 classes.');
+        candidate.project = existing ? project : validateProject({ ...project, labels: [...project.labels, { id: args.id, name: nameValue, color: args.color }] });
+      } else candidate.project = updateClass(project, args.id, { name: nameValue });
+      if (canonical(candidate.project.labels) === canonical(project.labels)) return { status: 'unchanged', labels: project.labels, taskId: memory.task?.id || null };
+      candidate.assistant = await refreshClassExamples(project, candidate.project, memory);
+    } else {
+      candidate.project = removeClass(project, args.id, args.replacementId);
+      const label = project.labels.find(label => label.id === args.id), replacement = project.labels.find(label => label.id === args.replacementId);
+      const affected = project.images.filter(image => image.annotations.some(box => box.labelId === args.id));
+      const boxes = affected.reduce((sum, image) => sum + image.annotations.filter(box => box.labelId === args.id).length, 0);
+      candidate.assistant = memory.task?.labelId === args.id ? cancelTask(memory) : memory;
+      message = `Remover classe ${label.name}: ${boxes} caixa(s) em ${affected.length} imagem(ns). ${replacement ? `Transferir caixas para ${replacement.name}, preservando geometria.` : 'Classe sem caixas.'}${memory.task?.labelId === args.id ? ' A tarefa desta classe será cancelada.' : ''} Há confirmação adicional antes de remover.`;
     }
-    const focused = panel.contains(document.activeElement) ? document.activeElement : null;
+    stillCurrent();
+    if (message && !ticket) return checkpoint(key, current, message);
+    if (name === 'anoint_remove_class' && ticket && !ticket.extra) {
+      const label = project.labels.find(label => label.id === args.id);
+      const result = checkpoint(key, current, `${message} Confirmação extra: digite REMOVER ${label.name}.`, true, `REMOVER ${label.name}`);
+      ticket.result = result; return result;
+    }
     working = true;
     try {
-      await store(async (nextProject, nextMemory) => {
-        stillCurrent();
-        const assistant = name === 'anoint_propose_task' ? proposeTask(nextMemory, nextProject, args) : await submitProposal(nextMemory, nextProject, args);
-        stillCurrent(); return { project: nextProject, assistant };
-      });
-      return { status: 'awaiting_human_review', taskId: state().task?.id || null };
-    } finally { working = false; refresh(focused); editor.overlay(); }
+      await editor.commit(() => { stillCurrent(); return candidate; }, undo);
+      if (authorize) authorizedTask = state().task.id;
+      const result = { status: 'saved', projectId: connectedProject, taskId: state().task?.id || null,
+        phase: state().task?.phase || null, pendingProposalId: state().pending?.requestId || null,
+        added: candidate.added || 0, labels: editor.get().project.labels,
+        next: state().pending ? 'Mostre get_image view=review no chat, peça as decisões e chame review. Não volte ao painel.' : 'Consulte o contexto e continue a conversa no chat.' };
+      if (ticket) ticket.result = result;
+      return result;
+    } finally { working = false; refresh(); editor.overlay(); }
   }
   window.anointAgent?.onRequest(handleTool);
-  window.addEventListener('beforeunload', event => {
-    if (drafts.size || manualDraft) { event.preventDefault(); event.returnValue = ''; void flush().catch(showDraftError); }
-  });
-  return { card, refresh, disconnect, handleTool, flush,
+  return { card, refresh, disconnect, handleTool, flush: async () => {},
     overlay(image, scale) {
-      const item = state().pending?.frames.find(frame => frame.imageId === image.id);
-      const boxes = item?.review?.decision === 'corrected' ? item.review.boxes : item?.boxes || [];
+      const boxes = state().pending?.frames.find(frame => frame.imageId === image.id)?.boxes || [];
       return boxes.map((box, index) => `<g class="assistant-suggestion" aria-label="Sugestão ${index + 1}"><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}"/><text x="${box.x + 3 / scale}" y="${box.y + 15 / scale}" font-size="${11 / scale}">Sugestão ${index + 1}</text></g>`).join('');
     },
   };

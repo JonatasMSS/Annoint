@@ -67,7 +67,7 @@ export function validateAssistant(value) {
     check(value.task && ['calibration', 'batch'].includes(value.task.phase) && pending.phase === value.task.phase
       && pending.taskId === value.task.id && id(pending.requestId) && /^[a-f0-9]{64}$/.test(pending.signature)
       && ['calibration', 'batch'].includes(pending.phase) && typeof pending.message === 'string' && pending.message.length <= 2000, 'Proposta pendente inválida.');
-    check(Array.isArray(pending.frames) && count(pending.frames.length, 100), 'Lote pendente inválido.');
+    check(Array.isArray(pending.frames) && count(pending.frames.length, value.task.batchSize), 'Lote pendente inválido.');
     const ids = new Set();
     for (const frame of pending.frames) {
       check(frame && id(frame.imageId) && /^[a-f0-9]{64}$/.test(frame.revision) && !ids.has(frame.imageId), 'Imagem de proposta inválida.');
@@ -106,7 +106,9 @@ export function availableImages(state) {
   const task = state.task;
   if (!task || !['calibration', 'batch'].includes(task.phase)) return [];
   const scope = task.phase === 'calibration' ? task.imageIds.slice(0, task.calibrationCount) : task.imageIds.slice(task.calibrationCount);
-  return scope.filter(imageId => !state.completed.includes(imageId)).slice(0, task.phase === 'calibration' ? 1 : task.batchSize);
+  // Preserva a rodada de uma imagem já salva por versões anteriores.
+  const size = task.phase === 'calibration' && state.pending ? state.pending.frames.length : task.batchSize;
+  return scope.filter(imageId => !state.completed.includes(imageId)).slice(0, size);
 }
 
 export function proposeTask(state, project, args) {
@@ -188,17 +190,24 @@ export async function reviewProposal(project, state, decisions) {
   for (const frame of pending.frames) {
     const image = nextProject.images.find(item => item.id === frame.imageId);
     const decision = decisions.find(item => item.imageId === frame.imageId);
-    check(image && frame.revision === await imageRevision(project, image), 'Conflito: houve edição manual. Descarte o lote e peça uma nova proposta.');
-    check(decision && ['accepted', 'corrected', 'rejected', 'absent'].includes(decision.decision), 'Escolha aceitar, corrigir, rejeitar ou confirmar ausência em cada imagem.');
+    check(image && decision, 'Escolha uma decisão para cada imagem.');
+    const currentRevision = await imageRevision(project, image);
+    const manual = decision.decision === 'manual' || (decision.decision === 'absent' && decision.revision !== undefined);
+    check(manual ? decision.revision === currentRevision : frame.revision === currentRevision,
+      'Conflito: houve edição manual. Leia a imagem atual e confirme as caixas manuais ou peça outra proposta.');
+    check(['accepted', 'corrected', 'rejected', 'absent', 'manual'].includes(decision.decision), 'Escolha aceitar, corrigir, rejeitar, usar caixas manuais ou confirmar ausência.');
     check(typeof decision.note === 'string' && decision.note.length <= 2000, 'Comentário de revisão inválido.');
-    const final = decision.decision === 'accepted' ? frame.boxes : decision.decision === 'corrected' ? geometries(decision.boxes) : [];
+    const final = decision.decision === 'manual' ? geometries(image.annotations.filter(box => box.labelId === memory.task.labelId))
+      : decision.decision === 'accepted' ? frame.boxes : decision.decision === 'corrected' ? geometries(decision.boxes) : [];
     within(final, image);
-    check(!['accepted', 'corrected'].includes(decision.decision) || final.length > 0, 'Uma proposta vazia exige confirmar explicitamente que não há alvo.');
+    check(!['accepted', 'corrected', 'manual'].includes(decision.decision) || final.length > 0, 'Uma proposta vazia exige confirmar explicitamente que não há alvo.');
     check(decision.decision !== 'rejected' || decision.note.trim(), 'Explique o erro para o agente ao rejeitar.');
     check(decision.decision !== 'absent' || !image.annotations.some(box => box.labelId === memory.task.labelId), 'Há caixas desta classe; remova-as antes de confirmar ausência.');
-    for (const box of final) image.annotations.push({ id: crypto.randomUUID(), labelId: memory.task.labelId, ...box });
-    if (final.length) image.reviewed = false;
-    added += final.length;
+    if (decision.decision !== 'manual') {
+      for (const box of final) image.annotations.push({ id: crypto.randomUUID(), labelId: memory.task.labelId, ...box });
+      if (final.length) image.reviewed = false;
+      added += final.length;
+    }
     feedback.push({ imageId: image.id, phase: pending.phase, decision: decision.decision, note: decision.note,
       proposed: copy(frame.boxes), final: copy(final), exampleState: exampleState(nextProject, image) });
   }
@@ -220,6 +229,42 @@ export function useManualExample(project, state, imageId, note, absent = false) 
   check(boxes.length || absent, 'Marque o alvo manualmente ou confirme que ele não aparece nesta imagem.');
   check(!boxes.length || !absent, 'Há caixas desta classe; remova-as antes de confirmar ausência.');
   return validateAssistant(recordFeedback(memory, [{ imageId, phase: 'calibration', decision: absent ? 'absent' : 'manual', note, proposed: [], final: boxes, exampleState: exampleState(project, image) }]));
+}
+
+export async function confirmManualExample(project, state, imageId, revision, note, absent = false) {
+  const image = project.images.find(image => image.id === imageId);
+  check(image && revision === await imageRevision(project, image), 'A imagem mudou. Leia a versão atual antes de confirmar o exemplo manual.');
+  const memory = validateAssistant(state);
+  const previous = memory.feedback.find(item => item.imageId === imageId && item.phase === 'calibration');
+  if (!previous) return useManualExample(project, memory, imageId, note, absent);
+  check(typeof absent === 'boolean' && typeof note === 'string' && note.length <= 2000, 'Comentário ou confirmação de ausência inválidos.');
+  check(memory.task.phase !== 'cancelled' && project.labels.some(label => label.id === memory.task.labelId), 'Tarefa cancelada ou classe removida.');
+  const boxes = geometries(image.annotations.filter(box => box.labelId === memory.task.labelId));
+  check(boxes.length || absent, 'Marque o alvo manualmente ou confirme que ele não aparece nesta imagem.');
+  check(!boxes.length || !absent, 'Há caixas desta classe; remova-as antes de confirmar ausência.');
+  Object.assign(previous, { decision: absent ? 'absent' : 'manual', note, final: boxes, exampleState: exampleState(project, image) });
+  const next = memory.pending ? discardProposal(memory) : memory;
+  next.task.examplesVersion += 1;
+  next.task.phase = next.completed.length < next.task.calibrationCount ? 'calibration'
+    : next.completed.length < next.task.imageIds.length ? 'awaiting_batch' : 'complete';
+  return validateAssistant(next);
+}
+
+export async function refreshClassExamples(before, after, state) {
+  const memory = validateAssistant(state);
+  for (const item of memory.feedback.filter(item => item.phase === 'calibration')) {
+    if (item.exampleState === exampleState(before, before.images.find(image => image.id === item.imageId))) {
+      item.exampleState = exampleState(after, after.images.find(image => image.id === item.imageId));
+    }
+  }
+  for (const frame of memory.pending?.frames || []) {
+    const original = before.images.find(image => image.id === frame.imageId);
+    if (original && frame.revision === await imageRevision(before, original)) {
+      frame.revision = await imageRevision(after, after.images.find(image => image.id === frame.imageId));
+    }
+  }
+  if (memory.task) memory.task.examplesVersion += 1;
+  return memory;
 }
 
 export function authorizeBatch(state) {

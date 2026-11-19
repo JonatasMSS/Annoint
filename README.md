@@ -25,7 +25,7 @@ Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e se
 
 ## O que funciona
 
-- **Assistente MCP no desktop**, com conversa no agente externo: plano e escopo autorizados, calibração por exemplos/correções, sugestões em camada separada, geração em lotes autorizados e aplicação humana com Desfazer. Veja [como conectar, ferramentas e limites](docs/MCP.md).
+- **Assistente MCP com todo o fluxo no chat externo**: no aplicativo você copia a conexão; no chat descreve o alvo, autoriza imagens/lotes, vê prévias, avalia e aplica sugestões. A calibração também aceita várias imagens por rodada e uma confirmação para o conjunto, com decisões diferentes por imagem. O agente cria/renomeia classes; remoção exige confirmação extra. Use o editor para ajustes manuais e diga “este é o correto” no chat, sem duplicar caixas. Veja [como conectar, ferramentas e limites](docs/MCP.md).
 - Tela inicial **Projetos** com cartões, nomes, quantidade de imagens e progresso de revisão. Crie um projeto pelo nome, abra um cartão para continuar e use **Projetos** no editor para voltar à biblioteca.
 - Vários projetos locais independentes, com navegação e histórico de desfazer separados. Abrir JSON adiciona uma cópia à biblioteca; o projeto anterior continua salvo. A troca aguarda o salvamento e permanece no editor se houver falha.
 - Exemplo ilustrado local para experimentar a anotação.

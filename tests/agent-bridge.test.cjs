@@ -17,7 +17,8 @@ test('ponte usa loopback/token aleatório e entrega nomes/argumentos exatos', as
   t.after(() => bridge.close());
   assert.match(bridge.url, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.match(bridge.token, /^[a-f0-9]{64}$/);
-  const names = ['anoint_get_context', 'anoint_list_images', 'anoint_get_image', 'anoint_propose_task', 'anoint_submit_proposal'];
+  const names = ['anoint_get_context', 'anoint_list_images', 'anoint_get_image', 'anoint_propose_task', 'anoint_submit_proposal',
+    'anoint_control_task', 'anoint_review', 'anoint_manual_example', 'anoint_create_class', 'anoint_update_class', 'anoint_remove_class'];
   for (const name of names) {
     const response = await post(bridge, { name, args: { id: 'imagem' } });
     assert.equal(response.status, 200);
