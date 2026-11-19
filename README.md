@@ -6,6 +6,18 @@ Descreva o que deseja identificar, oriente o agente com exemplos e revise as ano
 
 Versão **0.4.0** · [Histórico de mudanças](CHANGELOG.md) · [Visão do projeto](docs/VISAO.md) · [Guia MCP](docs/MCP.md)
 
+## Veja o aplicativo
+
+![Editor do Anoint com classes, caixas e propriedades de uma anotação selecionada](docs/media/anoint-app.png)
+
+### Demonstração em 30 segundos
+
+[![Prévia animada: desenhar uma caixa, ajustar medidas, editar classes, exportar e abrir a conexão MCP](docs/media/anoint-demo.gif)](docs/media/anoint-demo.mp4)
+
+[▶ Abrir ou baixar o vídeo em Full HD](docs/media/anoint-demo.mp4) · 30 segundos · sem narração
+
+Captura real do editor com o exemplo ilustrado do aplicativo. A demonstração mostra os ajustes manuais e a entrada da conexão MCP; plano e revisão com o agente continuam no chat externo.
+
 ## O problema
 
 Preparar um dataset exige marcar os mesmos objetos em muitas imagens. Fazer tudo manualmente é repetitivo; revisar cada foto alternando entre editor e chat também interrompe o trabalho.

@@ -1,6 +1,7 @@
 node_modules/
 .maestri/
 test-results/
+.hyperframes/
 test-scenes/images/
 test-scenes/manifest.json
 test-scenes/class-contract.json
