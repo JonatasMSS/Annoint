@@ -1,115 +1,126 @@
 # Anoint
 
-Estúdio local de anotação de imagens, com caixas manuais e assistência por agente MCP externo. Baseado nas notas e na referência visual conectadas ao projeto no Maestri.
+**Anotação de imagens com edição manual e assistência por agente de IA via MCP.**
 
-Versão atual: **0.4.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
+Descreva o que deseja identificar, oriente o agente com exemplos e revise as anotações em lote pelo seu chat. Use o editor quando precisar corrigir uma caixa manualmente.
 
-Leia o resumo do [problema, proposta e próximas funcionalidades](docs/VISAO.md).
+Versão **0.4.0** · [Histórico de mudanças](CHANGELOG.md) · [Visão do projeto](docs/VISAO.md) · [Guia MCP](docs/MCP.md)
 
-## Abrir
+## O problema
 
-Requer Node.js 22.12+ e npm.
+Preparar um dataset exige marcar os mesmos objetos em muitas imagens. Fazer tudo manualmente é repetitivo; revisar cada foto alternando entre editor e chat também interrompe o trabalho.
+
+O Anoint reúne organização local, edição de caixas e automação por um agente externo, mantendo a revisão e a aprovação com o usuário.
+
+## A proposta
+
+Você descreve **o que marcar** e **quantas imagens analisar**. O agente propõe as caixas, recebe suas correções e usa esses exemplos como contexto nas próximas rodadas.
+
+1. **Conecte:** abra um projeto e copie a configuração MCP para seu cliente de chat.
+2. **Descreva:** informe o alvo, a classe, as imagens de calibração e o tamanho dos lotes.
+3. **Autorize:** confirme o escopo e o acesso às imagens pelo agente.
+4. **Revise em conjunto:** veja as sugestões de várias imagens, aceite as boas e corrija ou rejeite as demais.
+5. **Aplique:** confirme o conjunto para adicionar somente as caixas aprovadas e salvar o feedback.
+
+Plano, permissões e revisão acontecem no chat externo. Para ajustes manuais, altere as caixas no editor e diga **“este é o correto”** no chat. As caixas existentes são aproveitadas sem duplicação.
+
+Autorizar a geração de sugestões e aprovar sua aplicação são ações separadas. A calibração fornece exemplos e correções ao agente; não treina pesos nem garante precisão.
+
+## Recursos disponíveis
+
+- **Biblioteca de projetos:** projetos independentes, progresso e salvamento automático local.
+- **Editor de caixas:** desenhar, mover, redimensionar, ajustar coordenadas, zoom, desfazer e refazer.
+- **Classes:** criar, editar nome/cor e remover com transferência das anotações; a última classe é protegida.
+- **Imagens e pastas:** importar arquivos e subpastas, navegar em lotes de 100, filtrar e selecionar várias imagens para remoção do projeto.
+- **Assistente MCP:** prévias, calibração e revisão de várias imagens por rodada, decisões individuais e confirmação do conjunto.
+- **Gestão pelo agente:** criar e renomear classes; remover exige confirmação adicional.
+- **Conexão recuperável:** reset de credenciais e retomada autorizada, preservando projeto, calibração e propostas.
+- **Exportação:** backup JSON com imagens e memória do assistente, além de dataset YOLO em ZIP.
+
+## Executar localmente
+
+Requer **Node.js 22.12+** e **npm**. Na pasta do repositório:
 
 ```sh
 npm ci
 npm start
 ```
 
-O primeiro início baixa o executável do Electron e precisa de internet. Se esse download for interrompido, execute `npx install-electron --no` e tente novamente.
+O aplicativo desktop usa Electron. A instalação com `npm ci` precisa de internet para baixar as dependências e o executável do Electron. Ainda não há instalador com runtime embutido.
 
-Para usar a mesma interface no navegador:
+Para experimentar o editor no navegador:
 
 ```sh
 npm run preview
 ```
 
-Abra <http://127.0.0.1:4173>. O servidor escuta somente no computador local e serve apenas os arquivos da interface. Para outra porta, defina a variável de ambiente `PORT`. O banco do navegador é separado do banco do Electron e muda conforme a origem/porta. Os módulos precisam de HTTP local no navegador.
+Abra <http://127.0.0.1:4173>. A prévia oferece edição manual; a conexão MCP está disponível no desktop. O banco do navegador é separado do Electron e muda conforme a origem/porta.
 
-## O que funciona
+## Conectar seu agente
 
-- **Assistente MCP com todo o fluxo no chat externo**: no aplicativo você copia a conexão; no chat descreve o alvo, autoriza imagens/lotes, vê prévias, avalia e aplica sugestões. A calibração também aceita várias imagens por rodada e uma confirmação para o conjunto, com decisões diferentes por imagem. O agente cria/renomeia classes; remoção exige confirmação extra. Use o editor para ajustes manuais e diga “este é o correto” no chat, sem duplicar caixas. Veja [como conectar, ferramentas e limites](docs/MCP.md).
-- Tela inicial **Projetos** com cartões, nomes, quantidade de imagens e progresso de revisão. Crie um projeto pelo nome, abra um cartão para continuar e use **Projetos** no editor para voltar à biblioteca.
-- Vários projetos locais independentes, com navegação e histórico de desfazer separados. Abrir JSON adiciona uma cópia à biblioteca; o projeto anterior continua salvo. A troca aguarda o salvamento e permanece no editor se houver falha.
-- Exemplo ilustrado local para experimentar a anotação.
-- Importação de PNG, JPEG, WebP, AVIF, GIF e BMP, por seletor ou arrastar arquivos.
-- Importação de pastas pelo botão **Importar pasta**, incluindo subpastas, caminhos preservados e ordem numérica dos nomes (frame2 antes de frame10). Arquivos de outros formatos são ignorados; imagens inválidas são informadas sem descartar as válidas. Novos lotes são adicionados ao projeto e podem ser desfeitos.
-- Criação, seleção, movimento e redimensionamento de caixas, com limites da imagem e zoom.
-- Edição de classe e coordenadas no inspetor, em pixels da imagem original.
-- Botão de Lixeira **Excluir caixa selecionada** no cabeçalho do inspetor, além do botão abaixo das medidas e da tecla Delete; a exclusão permite desfazer.
-- Criação e edição de nomes e cores das classes pelo lápis da barra lateral ou pelo botão **Editar classe selecionada**. O nome fica selecionado ao abrir o editor para facilitar a digitação. No mesmo diálogo, remova uma classe vazia ou transfira suas caixas para outra classe antes de removê-la; imagens afetadas voltam a pendentes. A última classe é preservada e a operação permite desfazer.
-- Exclusão de anotações, desfazer e refazer (até 30 alterações na sessão).
-- Lotes de 100 imagens, com conclusão por lote, seleção restaurada ao voltar e miniaturas que podem ser recolhidas. Só o lote ativo fica no cache de URLs; anotações e progresso dos demais permanecem salvos.
-- Exclusão de imagens importadas pelo seletor desktop: confirmação nativa e envio do original para a Lixeira. Cópias antigas sem vínculo com a pasta só podem ser removidas do projeto. Excluir uma imagem limpa o histórico para impedir que desfazer ressuscite arquivos excluídos.
-- Seleção múltipla pelo botão **Selecionar imagens**, com checkboxes, contador, **Selecionar visíveis**, **Limpar** e **Remover N**. A seleção se limita ao lote/filtro atual e é limpa ao trocá-los; **Esc** cancela. A remoção múltipla preserva os arquivos originais, pede confirmação e só libera as cópias locais após salvar. Ela não permite desfazer.
-- Imagens nativas com a mesma referência em outros projetos são removidas apenas do projeto atual. Arquivos indisponíveis mantêm suas anotações até a remoção explícita da referência; abrir o projeto não descarta esses dados.
-- Miniaturas, navegação por teclado, filtros e progresso. Imagens sem objetos também podem ser concluídas.
-- Autosalvamento em IndexedDB com status de erro e nova tentativa.
-- Indicadores de carregamento ao restaurar/abrir projetos, importar imagens/pastas, preparar exportações e remover imagens. A importação de arquivos mostra a contagem; operações sem total conhecido usam progresso indeterminado. Miniaturas e imagem principal indicam carregamento e falha, e o autosalvamento tem indicador discreto na barra inferior.
-- Exportação e reabertura do projeto em JSON, com imagens incorporadas e validação antes da troca.
-- Exportação de datasets YOLO em ZIP (TrackNet temporariamente desabilitado na interface), com as imagens originais e as anotações.
+O Anoint não inclui modelo de IA, assinatura ou chave de API. Use um cliente MCP com agente de visão e suporte a imagens.
 
-Atalhos: **B** caixa, **V** selecionar, **←/→** navegar, **C** concluir, **Delete** excluir, **Esc** cancelar, **Ctrl+Z** desfazer e **Ctrl+Y/Ctrl+Shift+Z** refazer. No Mac, use **⌘**. A ajuda e a lista de atalhos também estão na interface.
+1. Abra o aplicativo desktop, crie um projeto e importe as imagens.
+2. Acesse **Conexão MCP → Habilitar MCP**.
+3. Copie a configuração para seu cliente e mantenha o Anoint aberto no projeto.
+4. Continue a conversa no chat. Por exemplo:
 
-## Dados e limites
+> Quero marcar bolas amarelas nestas 12 imagens. Crie a classe Bola se necessário. Use 3 imagens para calibração e lotes de 3. Mostre as sugestões e peça minha autorização antes de aplicá-las. Se eu corrigir no editor e disser “este é o correto”, use minhas caixas como exemplo.
 
-Os projetos ficam na biblioteca local deste dispositivo. O projeto existente nas versões anteriores é migrado automaticamente, com imagens, classes, anotações e progresso preservados. Exporte JSON para guardar uma cópia fora do aplicativo. O MCP fica desligado até você habilitar a conexão; imagens autorizadas podem chegar ao cliente e ao provedor externo do agente, inclusive na nuvem. A cópia local depende do espaço disponível e pode ser apagada ao limpar os dados do aplicativo/navegador.
+Por padrão, as confirmações ocorrem pelo chat e dependem de o agente respeitar a resposta explícita do usuário. Formulários nativos são opcionais, conforme o suporte do cliente. Consulte o [contrato MCP e seus limites](docs/MCP.md).
 
-O Electron mantém uma única instância. No navegador, uma trava por origem impede que outra aba edite o mesmo banco ao mesmo tempo. Use um navegador com Web Locks; a segunda aba informa que o projeto já está aberto e não grava dados.
+Se houver problema de conexão, use **Resetar conexão MCP**, copie a nova configuração, reinicie o MCP no cliente e peça para **retomar**. A chave anterior é revogada; anotações, exemplos e propostas são preservados. O acesso às imagens exige nova autorização.
 
-A importação aceita até 10.000 imagens no projeto, divididas em lotes de até 100, com 15 MiB por arquivo e 100 milhões de pixels por imagem. No desktop, os seletores mantêm referências aos arquivos originais; não mova os arquivos enquanto anota. No navegador e ao abrir JSON, as imagens ficam como Blobs separados das anotações em IndexedDB. Projetos antigos são migrados sem alterar IDs, classes, caixas ou progresso; falha na migração preserva a gravação anterior. GIFs animados permanecem animados; a anotação é por arquivo, sem extração de frames nesta entrega.
+## Dados, privacidade e limites
 
-O JSON é um formato próprio, versão 1, com `labels` e `images`. Cada imagem mantém `id`, `name`, `src`, `width`, `height`, `reviewed` e `annotations`. Cada anotação tem `id`, `labelId`, `x`, `y`, `width` e `height`. As coordenadas são absolutas, em pixels naturais. No JSON portátil, imagens são incorporadas como data URLs; no banco local, `src` usa referências `asset:UUID` ou `anoint-image://UUID`, nunca URLs temporárias `blob:`. O registro nativo fica no perfil do Electron, junto ao vínculo com a pasta original; o exemplo acompanha o aplicativo em `assets/demo-street.svg`.
+Os projetos são salvos localmente em IndexedDB. No desktop, imagens importadas pelos seletores mantêm referências aos arquivos originais: evite movê-los enquanto anota. Exporte JSON para manter um backup fora do aplicativo.
 
-## Exportar para treino
+Ao habilitar o MCP, o agente pode acessar metadados e gerenciar classes. **Imagens autorizadas podem chegar ao cliente e ao provedor externo, inclusive na nuvem.** A configuração contém uma chave privada temporária; não a publique.
 
-Clique em **Exportar projeto**, escolha o formato e confirme **Exportar**. JSON guarda o projeto completo para reabrir. Os ZIPs incluem todas as imagens importadas, inclusive pendentes; imagens sem caixas representam ausência de objetos. O exemplo SVG é excluído dos datasets, conforme informado no diálogo, e continua no JSON. Outros SVGs não são aceitos para treino. Revise as imagens antes de exportar.
+| Limite | Valor |
+| --- | --- |
+| Imagens por projeto | Até 10.000 |
+| Importação por arquivo | Até 15 MiB e 100 milhões de pixels |
+| Anotações finais | Até 10.000 por imagem e 100.000 por projeto |
+| Calibração e rodada MCP | Até 100 imagens cada |
+| Propostas MCP por imagem | Até 1.000 caixas |
+| Memória do assistente | Até 8 MiB |
 
-- **YOLO (detecção):** `images/` e `labels/` espelham as subpastas, com um `.txt` por imagem. Cada linha contém `classe centro_x centro_y largura altura`, com coordenadas normalizadas e classes numeradas a partir de zero na ordem da barra lateral. Inclui `classes.txt` e `data.yaml`. Treino e validação apontam para as mesmas imagens; separe os conjuntos antes de treinar.
-- **TrackNet:** temporariamente desabilitado. O conversor existente e seus testes permanecem para uma futura reativação.
+PNG, JPEG, WebP, AVIF, GIF e BMP podem ser importados. Ainda não há extração de frames de vídeo. Para analisar GIF pelo MCP ou exportar para YOLO, converta os frames para imagens estáticas.
 
-Os nomes dos arquivos exportados são sanitizados para extração segura. Colisões recebem sufixos como `__2`, mantendo o pareamento entre imagem e anotação. Os bytes das imagens originais são preservados e nenhuma dependência nova é necessária. No seletor desktop, reimportar o mesmo original reutiliza o vínculo e preserva as anotações existentes; o navegador importa novas cópias. Pastas devem ser abertas pelo seletor; arrastar continua aceitando arquivos individuais.
+A remoção múltipla elimina imagens somente do projeto e preserva os originais; não permite desfazer. A exclusão individual de um original vinculado no desktop pode enviá-lo à Lixeira após confirmação e limpa o histórico de desfazer.
 
-Para manter a compatibilidade com o [carregador do Ultralytics](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/utils.py), pastas internas chamadas `images` são renomeadas para `_images` no ZIP YOLO (com sufixo em caso de colisão). GIF bloqueia a exportação YOLO com mensagem para converter os frames para PNG/JPEG antes de importar; não há omissão silenciosa nem extração automática de frames.
+## Exportar
 
-Arquivos JSON têm limite de 256 MiB. O modelo valida IDs, referências de classes, cores hexadecimais, números finitos, caixas dentro da imagem e origens locais. O contrato suporta até 10.000 imagens, 1.000 classes, 10.000 caixas por imagem e 100.000 por projeto, com até 128 MiB de fontes incorporadas no JSON portátil. Fontes externas/Blobs não entram nesse limite. O ZIP inclui todos os lotes, exige os arquivos disponíveis e limita as imagens a 3,875 GiB, reservando cabeçalhos/anotações para ZIP32 de até 4 GiB/65.535 arquivos; exportações grandes ainda precisam de RAM para empacotar. Trocar de lote libera as URLs e os elementos de imagem do lote anterior, sem apagar arquivos nem anotações. A interface exige ao menos uma classe ao reabrir um projeto, aceita projetos sem imagens e confere a decodificação e as dimensões originais antes da troca.
+Em **Exportar projeto**, escolha:
 
-## Verificar
+- **JSON:** backup portátil para reabrir o projeto, incluindo imagens, anotações e trabalho do assistente.
+- **YOLO:** ZIP com imagens originais, rótulos normalizados, `classes.txt` e `data.yaml`.
 
-```sh
-npm test
-npm run test:ui
-npm run fixtures:scenes
-npm run test:scenes
-npm run test:native
-npm run test:agent
-npm run fixtures
-```
+O YOLO inclui todas as imagens importadas, inclusive pendentes; somente anotações finais são exportadas, sem sugestões. Revise o dataset e separe treino/validação antes de treinar. O exemplo SVG fica fora do dataset. TrackNet está temporariamente desabilitado na interface.
 
-Os testes Node cobrem coordenadas, bordas fracionárias, dados inválidos, ida e volta do JSON, limites, commit/abort do IndexedDB, isolamento do Electron, privacidade do servidor local e conteúdo/CRC dos ZIPs YOLO e TrackNet. `test:ui` abre uma janela oculta do Electron com banco temporário separado, verifica os fluxos de anotação, importação de arquivos e pastas, persistência, exportação JSON/YOLO e bloqueio de TrackNet, e encerra. Ele precisa do executável do Electron instalado.
+## Desenvolvimento e testes
 
-`test-images/valid` contém dez imagens sintéticas PNG/JPEG para testes manuais. `test-images/invalid` contém quatro arquivos corrompidos e dois formatos não aceitos. `manifest.json` registra dimensões e caixas esperadas em pixels. `npm run fixtures` regenera e verifica esse conjunto sem downloads.
+| Comando | Verificação |
+| --- | --- |
+| `npm test` | Modelo, exportação, persistência, MCP, ponte e IPC |
+| `npm run test:ui` | Editor e biblioteca em Electron com perfil temporário |
+| `npm run test:agent` | Fluxo Electron/MCP, confirmações, lotes, reset e retomada |
+| `npm run test:native` | Importação nativa e Lixeira usando arquivos temporários |
+| `npm run fixtures:scenes` | Geração de cenas sintéticas para anotação |
+| `npm run test:scenes` | Anotação e exportação das cenas; gere as fixtures antes |
 
-`npm run fixtures:scenes` gera **100 cenas determinísticas PNG** em `test-scenes/images`, com formas geométricas e desenhos de carro, pessoa e casa, posições/tamanhos/cores variados e cinco imagens sem objetos. Importe a pasta para anotar; `test-scenes/manifest.json` é o gabarito separado com classes, caixas em pixels e hashes para futuras avaliações de agentes MCP. O gerador usa Node, sem dependências novas. Imagens, manifesto e contrato de classes gerados ficam fora do Git; gere-os antes de executar `test:scenes` em um clone novo. São 100 imagens: a troca entre lotes pode ser testada em um projeto que já contenha outra imagem. Veja [as instruções e limites](test-scenes/README.md).
+O código do editor fica em `src/`, a integração desktop em `electron/` e o servidor MCP em `mcp/`. Os testes ficam em `tests/` e `scripts/`.
 
-`npm run test:scenes` verifica esse conjunto na interface real do Electron, com perfil isolado: desenha as 346 caixas usando ponteiro e inspetor, testa lotes/cache, progresso, reload e downloads JSON/YOLO comparados com o gabarito. Capturas, relatório e uma cópia anotada para reabrir ficam em `test-results/scenes-ui/`. Veja [o relatório das cenas](docs/QA-cenas.md).
+Relatórios: [interface](docs/QA-interface.md), [lotes e arquivos nativos](docs/QA-lotes.md) e [cenas sintéticas](docs/QA-cenas.md).
 
-O teste de interface importa 501 arquivos, troca lotes, confere liberação do cache, progresso, reabertura, exportação de todos os lotes, exclusão até vazio e também anota essas imagens por eventos reais de ponteiro, verifica zoom/rolagem, oito alças, classes, atalhos, limites, trava entre janelas e um download real. Gera capturas e resultados em `test-results/`, que fica fora do Git. Veja [o relatório de QA](docs/QA-interface.md) para cobertura, correções e limites da verificação.
+## Próximas funcionalidades
 
-`test:native` verifica o preload e o protocolo reais, importa uma pasta com 501 arquivos e exercita a Lixeira do Windows somente com cópias temporárias. Seletores e confirmações recebem respostas controladas no teste. Veja [a validação de lotes e exclusão](docs/QA-lotes.md).
+Evoluções propostas, ainda sem prazo definido:
 
-A verificação de interface também cobre a biblioteca de projetos, migração do banco antigo sem duplicação, criação/importação sem substituir projetos, preservação de imagens entre projetos, troca antes do autosalvamento, falhas de gravação e layout estreito. Capturas da biblioteca ficam em `test-results/projects-home.png` e `test-results/projects-mobile.png`. O teste nativo confere referências compartilhadas e remoção explícita de arquivos indisponíveis.
+- Resolver os achados de confiabilidade em retomadas, retries, confirmações e edição durante gravação.
+- Oferecer recortes e zoom para o agente analisar objetos pequenos.
+- Extrair frames de vídeo por intervalo ou quantidade e revisá-los em lote.
+- Distribuir um instalador com o runtime necessário.
 
-## Estrutura
-
-- `src/app.js` e `src/styles.css`: interface DOM/SVG, sem HTML canvas ou canvas infinito.
-- `src/model.js`: geometrias e validação do contrato.
-- `src/batches.js`: grupos de 100 e cache com revogação de URLs ao trocar de lote.
-- `src/storage.js`: IndexedDB v2 com anotações e Blobs separados; gravações só são confirmadas após o commit.
-- `src/export.js`: conversão YOLO/TrackNet e empacotamento ZIP local.
-- `electron/files.cjs`, `electron/native-files.cjs` e `electron/preload.cjs`: seletores, capabilities locais e exclusão confirmada na Lixeira.
-- `electron/main.cjs`: aplicativo desktop com isolamento, sandbox, CSP no HTML, bloqueio de navegação externa e permissões.
-- `src/assistant.js` e `src/assistant-ui.js`: tarefa, revisão, exemplos, rascunhos e painel do assistente.
-- `mcp/server.js`, `mcp/bridge.cjs` e `electron/agent.cjs`: MCP stdio e ponte privada autenticada com IPC restrito.
-- `scripts/serve.js`: prévia local sem dependências adicionais.
-
-O MCP usa o SDK oficial e Zod para validar ferramentas. O modelo de visão fica no cliente escolhido pelo usuário; calibração fornece contexto e exemplos, sem treinamento de pesos garantido. Instalador e runtime Node embutido ficam para uma próxima entrega.
+Veja o [resumo da visão e dos próximos passos](docs/VISAO.md). A revisão humana e a aprovação explícita continuam orientando as próximas automações.
