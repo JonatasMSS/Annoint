@@ -2,7 +2,9 @@
 
 Estúdio local de anotação de imagens, com caixas manuais e assistência por agente MCP externo. Baseado nas notas e na referência visual conectadas ao projeto no Maestri.
 
-Versão atual: **0.3.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
+Versão atual: **0.4.0**, exibida também na barra inferior. Acompanhe as entregas no [histórico de mudanças](CHANGELOG.md).
+
+Leia o resumo do [problema, proposta e próximas funcionalidades](docs/VISAO.md).
 
 ## Abrir
 
