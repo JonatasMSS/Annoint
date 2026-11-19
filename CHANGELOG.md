@@ -1,10 +1,17 @@
 # Histórico do Anoint
 
-## Em desenvolvimento — 2026-11-18
+## 0.4.0 — 2026-11-19
 
-- Painel do assistente mais compacto, com conexão, ajuda e histórico recolhidos e correções de caixas expansíveis.
-- Botão para limpar a lista do histórico, preservando calibração, exemplos e anotações.
-- Explicação do fluxo de comunicação com o agente externo na ajuda e documentação.
+- Botão Resetar conexão MCP para renovar a chave e revogar a conexão anterior, preservando projeto e trabalho do assistente; retomada continua exigindo autorização no chat.
+- Calibração e revisão de várias imagens por rodada, com decisões individuais e uma confirmação explícita para aplicar o conjunto; propostas antigas pendentes preservadas.
+- Fluxo do assistente integralmente no chat externo: plano, permissões, prévia, revisão, aplicação, cancelamento e histórico.
+- Painel do Anoint restrito à conexão MCP; editor permanece disponível para ajustes manuais.
+- Limpeza do histórico pelo chat preserva calibração, feedback e anotações.
+- Sincronização local da configuração MCP do Gemini e recuperação da ponte após renovação de credenciais.
+- Ferramentas para criar/renomear classes e remover com duas confirmações, transferência de caixas e proteção da última classe.
+- Confirmação pelo chat como padrão, inclusive para clientes que anunciam elicitation e cancelam formulários automaticamente; modo nativo moderno/legado disponível por configuração explícita, sem converter cancelamento em autorização.
+- Exemplos “este é o correto” usam caixas manuais sem duplicação; atualização de calibração invalida propostas antigas.
+- Confirmações vinculadas a ação/escopo/revisão e descarte restrito ao ID exato da proposta.
 
 ## 0.3.0 — 2026-11-17
 
